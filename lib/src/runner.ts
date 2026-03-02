@@ -447,6 +447,7 @@ export function run(binDir: string, argv: string[] = process.argv): void {
   const runCwd = parsedOutput ? path.resolve(process.cwd(), parsedOutput) : process.cwd();
 
   for (const entry of entries) {
+    fs.mkdirSync(path.resolve(runCwd, entry.outputDir), { recursive: true });
     const command = buildExtractCommand(cliPath, entry, runCwd);
     execSync(command, { stdio: 'inherit', cwd: runCwd });
     applySymlinks(entry, runCwd);

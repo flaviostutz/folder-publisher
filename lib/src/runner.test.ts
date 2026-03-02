@@ -24,6 +24,7 @@ jest.mock('node:child_process', () => ({
 jest.mock('node:fs', () => ({
   ...jest.requireActual('node:fs'),
   readFileSync: jest.fn(),
+  mkdirSync: jest.fn(),
 }));
 
 type MockedExecSync = jest.MockedFunction<typeof execSync>;
@@ -1045,8 +1046,11 @@ describe('runner', () => {
     let tmpDir: string;
 
     beforeEach(() => {
-      // These tests need real filesystem; restore readFileSync to the actual implementation.
+      // These tests need real filesystem; restore readFileSync and mkdirSync to the actual implementation.
       mockReadFileSync.mockImplementation(jest.requireActual<typeof fs>('node:fs').readFileSync);
+      (fs.mkdirSync as jest.Mock).mockImplementation(
+        jest.requireActual<typeof fs>('node:fs').mkdirSync,
+      );
       tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'runner-symlinks-test-'));
     });
 
@@ -1216,8 +1220,11 @@ describe('runner', () => {
     let tmpDir: string;
 
     beforeEach(() => {
-      // These tests need real filesystem; restore readFileSync to the actual implementation.
+      // These tests need real filesystem; restore readFileSync and mkdirSync to the actual implementation.
       mockReadFileSync.mockImplementation(jest.requireActual<typeof fs>('node:fs').readFileSync);
+      (fs.mkdirSync as jest.Mock).mockImplementation(
+        jest.requireActual<typeof fs>('node:fs').mkdirSync,
+      );
       tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'runner-content-replace-test-'));
     });
 
@@ -1320,8 +1327,11 @@ describe('runner', () => {
     let tmpDir: string;
 
     beforeEach(() => {
-      // These tests need real filesystem; restore readFileSync to the actual implementation.
+      // These tests need real filesystem; restore readFileSync and mkdirSync to the actual implementation.
       mockReadFileSync.mockImplementation(jest.requireActual<typeof fs>('node:fs').readFileSync);
+      (fs.mkdirSync as jest.Mock).mockImplementation(
+        jest.requireActual<typeof fs>('node:fs').mkdirSync,
+      );
       tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'runner-check-replace-test-'));
     });
 
