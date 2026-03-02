@@ -5,7 +5,7 @@ Publish folders as npm packages and extract them in any workspace. Use it to dis
 ## How it works
 
 - **Publisher**: a project that has folders to share. Running `init` prepares its `package.json` so those folders are included when the package is published.
-- **Consumer**: any project that installs that package and runs `extract` to download the files locally. A `.publisher` marker file is written alongside the managed files to track ownership and enable safe updates.
+- **Consumer**: any project that installs that package and runs `extract` to download the files locally. A `.npmdata` marker file is written alongside the managed files to track ownership and enable safe updates.
 
 ## Extraction patterns
 
@@ -174,7 +174,7 @@ Each entry in the `npmdata` array in `package.json` supports the following optio
 | `contentRegexes` | `string[]` | none | Regex patterns (as strings) to filter files by content. Only files matching at least one pattern are extracted. |
 | `force` | `boolean` | `false` | Allow overwriting existing unmanaged files or files owned by a different package. |
 | `keepExisting` | `boolean` | `false` | Skip files that already exist but create them when absent. Cannot be combined with `force`. |
-| `gitignore` | `boolean` | `false` | Create/update a `.gitignore` file alongside each `.npmdata` marker file. |
+| `gitignore` | `boolean` | `false` | Create/update a `.gitignore` file alongside each `.npmdata` marker file. Note: the CLI enables gitignore by default; this field controls the value when embedded in `package.json`. |
 | `unmanaged` | `boolean` | `false` | Write files without a `.npmdata` marker, `.gitignore` update, or read-only flag. Existing files are skipped. |
 | `dryRun` | `boolean` | `false` | Simulate extraction without writing anything to disk. |
 | `upgrade` | `boolean` | `false` | Force a fresh install of the package even when a satisfying version is already installed. |
@@ -316,7 +316,7 @@ Extract options:
                            "my-pkg@^1.0.0,other-pkg@2.x"
   --output, -o <dir>       Output directory (default: current directory)
   --force                  Overwrite existing unmanaged files or files owned by a different package
-  --no-gitignore            Skip creating/updating .gitignore (gitignore is enabled by default)
+  --no-gitignore           Skip creating/updating .gitignore (gitignore is enabled by default)
   --unmanaged              Write files without a .npmdata marker, .gitignore update, or read-only
                            flag. Existing files are skipped. Files can be freely edited afterwards
                            and are not tracked by npmdata.
@@ -401,7 +401,9 @@ const status = await check({
   outputDir: './data',
 });
 if (!status.ok) {
-  console.log('Overall differences:', status.differences);
+  console.log('Missing:', status.differences.missing);
+  console.log('Modified:', status.differences.modified);
+  console.log('Extra:', status.differences.extra);
   for (const pkg of status.sourcePackages) {
     if (!pkg.ok) {
       console.log(pkg.name, 'missing:', pkg.differences.missing);
@@ -460,11 +462,11 @@ type ProgressEvent =
   | { type: 'file-skipped';  packageName: string; file: string };
 ```
 
-See [lib/README.md](lib/README.md) for the full API reference.
+See the root [README.md](../README.md) for the full documentation.
 
 ## Managed file tracking
 
-Extracted files are set read-only (`444`) and tracked in a `.publisher` marker file in each output directory. On subsequent extractions:
+Extracted files are set read-only (`444`) and tracked in a `.npmdata` marker file in each output directory. On subsequent extractions:
 
 - Unchanged files are skipped.
 - Updated files are overwritten.
@@ -497,14 +499,14 @@ Multiple packages can coexist in the same output directory; each owns its own fi
 1. Detects the package manager (`pnpm` / `yarn` / `npm`) via lock-file presence.
 2. For each entry in `config.packages`, parses the spec (`name` or `name@version`) and runs `<pm> add <package>@<version>` to resolve the package.
 3. Iterates matching files (glob + optional content regex) from each installed package.
-4. Copies files into `outputDir`, tracking state in a `.publisher` CSV marker file per output directory.
+4. Copies files into `outputDir`, tracking state in a `.npmdata` pipe-delimited marker file per output directory.
 5. Optionally writes a `.gitignore` section around the managed files.
 
 `check()` performs the same resolution for each package in `config.packages` but compares SHA-256 hashes without writing any files.
 
-### Marker file (`.publisher`)
+### Marker file (`.npmdata`)
 
-Each output directory that contains managed files gets a `.publisher` CSV file. Columns: `path`, `packageName`, `packageVersion`, `sha256`. This is the source of truth for drift detection and clean removal.
+Each output directory that contains managed files gets a `.npmdata` pipe-delimited file. Columns: `path`, `packageName`, `packageVersion`, `force`. This is the source of truth for ownership tracking and clean removal.
 
 ### Key design decisions
 
