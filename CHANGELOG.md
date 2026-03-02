@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.5.1 (2026-03-02)
+
+### Maintenance
+
+* enhance documentation [[02fc795](https://github.com/flaviostutz/npmdata/commit/02fc795b171677370f24b44972f8eae29d584511)]
+* enhancing readme [[26d0afa](https://github.com/flaviostutz/npmdata/commit/26d0afa2c7bae8f43297a80204912430d8a50801)]
+* fix output dir bug [[f44d362](https://github.com/flaviostutz/npmdata/commit/f44d3624e1464b92967a5b90e3bf3a46814b5d93)]
+* update docs with npmdata config details [[db21e70](https://github.com/flaviostutz/npmdata/commit/db21e7021851b9f8987b3a68d7f7afd0da8831a0)]
+
+### Info
+
+* Authors: Flavio Stutz <flaviostutz@gmail.com>
+
+
 ## 0.5.0 (2026-03-02)
 
 ### Features
