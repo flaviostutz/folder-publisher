@@ -17,6 +17,7 @@ test:
 	pnpm exec example-files-package extract --output output
 
 	# fail if a expected extracted file doesn't exist
+	test -e output/.configs/app.config.json
 	test -e output/docs/adrs/adr-001-sample1.md
 	test -e output/conf/globals.js
 
@@ -24,6 +25,9 @@ test:
 # 	fail if basic-tagged files are not present, and extra-tagged files are purged
 	test -e output/docs/adrs/adr-001-sample1.md
 	test ! -e output/conf/globals.js
+
+	pnpm exec example-files-package extract --tags "basic" --output output
+	test -e output/.configs/app.config.json
 
 clean:
 	@rm -rf node_modules

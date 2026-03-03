@@ -11,6 +11,7 @@
     "docs/**",
     "data/**",
     "conf/globals.js",
+    ".configs/**",
     "package.json",
     "bin/npmdata.js"
   ],
@@ -21,7 +22,8 @@
       "files": [
         "docs/**",
         "data/**",
-        "conf/globals.js"
+        "conf/globals.js",
+        ".configs/**"
       ],
       "tags": [
         "basic"
@@ -33,7 +35,8 @@
       "files": [
         "docs/**",
         "data/**",
-        "conf/globals.js"
+        "conf/globals.js",
+        ".configs/**"
       ],
       "tags": [
         "extra"

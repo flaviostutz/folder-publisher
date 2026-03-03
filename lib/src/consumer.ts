@@ -123,7 +123,7 @@ function updateGitignores(outputDir: string, addEntries = true): void {
 
     for (const item of fs.readdirSync(dir)) {
       const fullPath = path.join(dir, item);
-      if (fs.statSync(fullPath).isDirectory() && !item.startsWith('.')) {
+      if (fs.statSync(fullPath).isDirectory()) {
         walkDir(fullPath);
       }
     }
@@ -259,7 +259,7 @@ function loadManagedFilesMap(outputDir: string): Map<string, ManagedFileMetadata
         } catch {
           // Ignore unreadable marker files
         }
-      } else if (stat.isDirectory() && !item.startsWith('.')) {
+      } else if (stat.isDirectory()) {
         walkDir(fullPath);
       }
     }
@@ -301,7 +301,7 @@ function loadAllManagedFiles(outputDir: string): ManagedFileMetadata[] {
         } catch {
           // Ignore unreadable marker files
         }
-      } else if (stat.isDirectory() && !item.startsWith('.')) {
+      } else if (stat.isDirectory()) {
         walkDir(fullPath);
       }
     }
@@ -328,7 +328,7 @@ function cleanupEmptyMarkers(outputDir: string): void {
         } catch {
           // Ignore unreadable marker files
         }
-      } else if (fs.statSync(fullPath).isDirectory() && !file.startsWith('.')) {
+      } else if (fs.statSync(fullPath).isDirectory()) {
         walkDir(fullPath);
       }
     }
@@ -344,7 +344,7 @@ function cleanupEmptyDirs(outputDir: string): void {
     let isEmpty = true;
     for (const item of fs.readdirSync(dir)) {
       const fullPath = path.join(dir, item);
-      if (fs.statSync(fullPath).isDirectory() && !item.startsWith('.')) {
+      if (fs.statSync(fullPath).isDirectory()) {
         const childEmpty = walkDir(fullPath);
         if (!childEmpty) isEmpty = false;
       } else {

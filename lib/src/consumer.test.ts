@@ -216,6 +216,51 @@ describe('Consumer', () => {
       expect(fs.existsSync(path.join(outputDir, 'docs', 'guide.md'))).toBe(true);
     });
 
+    it('should be idempotent when package has dotfile directory paths', async () => {
+      const outputDir = path.join(tmpDir, 'output');
+
+      await installMockPackage(
+        'test-dotfile-idempotent-package',
+        {
+          'AGENTS.md': '# AGENTS',
+          '.xdrs/_general/adrs/index.md': '# Index',
+          '.xdrs/_general/adrs/principles/001-xdr-standards.md': '# Standards',
+        },
+        tmpDir,
+      );
+
+      // First extraction with patterns that include dotfiles
+      const firstResult = await extract({
+        packages: ['test-dotfile-idempotent-package'],
+        outputDir,
+        packageManager: 'pnpm',
+        cwd: tmpDir,
+        filenamePatterns: ['.**/**', '**'],
+      });
+
+      expect(firstResult.added).toContain('.xdrs/_general/adrs/index.md');
+      expect(firstResult.added).toContain('.xdrs/_general/adrs/principles/001-xdr-standards.md');
+      expect(fs.existsSync(path.join(outputDir, '.xdrs/_general/adrs/index.md'))).toBe(true);
+      expect(
+        fs.existsSync(path.join(outputDir, '.xdrs/_general/adrs/principles/001-xdr-standards.md')),
+      ).toBe(true);
+
+      // Second extraction must not throw "File conflict" and must skip all files
+      const secondResult = await extract({
+        packages: ['test-dotfile-idempotent-package'],
+        outputDir,
+        packageManager: 'pnpm',
+        cwd: tmpDir,
+        filenamePatterns: ['.**/**', '**'],
+      });
+
+      expect(secondResult.added).toHaveLength(0);
+      expect(secondResult.modified).toHaveLength(0);
+      expect(secondResult.deleted).toHaveLength(0);
+      expect(secondResult.skipped).toContain('.xdrs/_general/adrs/index.md');
+      expect(secondResult.skipped).toContain('.xdrs/_general/adrs/principles/001-xdr-standards.md');
+    });
+
     it('should be idempotent: running extraction twice produces no changes on the second run', async () => {
       const outputDir = path.join(tmpDir, 'output');
 
