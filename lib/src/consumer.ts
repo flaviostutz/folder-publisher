@@ -123,7 +123,8 @@ function updateGitignores(outputDir: string, addEntries = true): void {
 
     for (const item of fs.readdirSync(dir)) {
       const fullPath = path.join(dir, item);
-      if (fs.statSync(fullPath).isDirectory()) {
+      const lstat = fs.lstatSync(fullPath);
+      if (!lstat.isSymbolicLink() && lstat.isDirectory()) {
         walkDir(fullPath);
       }
     }
@@ -154,10 +155,11 @@ async function getPackageFiles(
 
       const fullPath = path.join(dir, file);
       const relPath = basePath ? `${basePath}/${file}` : file;
+      const lstat = fs.lstatSync(fullPath);
 
-      if (fs.statSync(fullPath).isDirectory()) {
+      if (!lstat.isSymbolicLink() && lstat.isDirectory()) {
         walkDir(fullPath, relPath);
-      } else {
+      } else if (!lstat.isSymbolicLink()) {
         contents.push({ relPath, fullPath });
       }
     }
@@ -232,18 +234,19 @@ async function ensurePackageInstalled(
 }
 
 /**
- * Load managed files from all marker files under outputDir, keyed by relative path.
- * Each value carries the package ownership metadata.
+ * Load all managed files from marker files under outputDir as a flat list.
+ * Paths are relative to outputDir.
  */
-function loadManagedFilesMap(outputDir: string): Map<string, ManagedFileMetadata> {
-  const files = new Map<string, ManagedFileMetadata>();
+function loadAllManagedFiles(outputDir: string): ManagedFileMetadata[] {
+  const files: ManagedFileMetadata[] = [];
 
   const walkDir = (dir: string): void => {
     if (!fs.existsSync(dir)) return;
 
     for (const item of fs.readdirSync(dir)) {
       const fullPath = path.join(dir, item);
-      const stat = fs.statSync(fullPath);
+      const stat = fs.lstatSync(fullPath);
+      if (stat.isSymbolicLink()) continue;
 
       if (item === MARKER_FILE) {
         try {
@@ -254,9 +257,10 @@ function loadManagedFilesMap(outputDir: string): Map<string, ManagedFileMetadata
           for (const managed of managedFiles) {
             const relPath =
               relMarkerDir === '.' ? managed.path : path.join(relMarkerDir, managed.path);
-            files.set(relPath, managed);
+            files.push({ ...managed, path: relPath });
           }
         } catch {
+          console.warn(`Warning: Failed to read marker file at ${fullPath}. Skipping.`); // eslint-disable-line no-console
           // Ignore unreadable marker files
         }
       } else if (stat.isDirectory()) {
@@ -270,45 +274,11 @@ function loadManagedFilesMap(outputDir: string): Map<string, ManagedFileMetadata
 }
 
 /**
- * Load all managed files from marker files under outputDir as a flat list.
- * Paths are relative to outputDir.
+ * Load managed files from all marker files under outputDir, keyed by relative path.
+ * Each value carries the package ownership metadata.
  */
-function loadAllManagedFiles(outputDir: string): ManagedFileMetadata[] {
-  const files: ManagedFileMetadata[] = [];
-
-  const walkDir = (dir: string): void => {
-    if (!fs.existsSync(dir)) return;
-
-    for (const item of fs.readdirSync(dir)) {
-      const fullPath = path.join(dir, item);
-      const stat = fs.statSync(fullPath);
-
-      if (item === MARKER_FILE) {
-        try {
-          const managedFiles = readCsvMarker(fullPath);
-          const markerDir = path.dirname(fullPath);
-          const relMarkerDir = path.relative(outputDir, markerDir);
-
-          for (const managed of managedFiles) {
-            const relPath =
-              relMarkerDir === '.' ? managed.path : path.join(relMarkerDir, managed.path);
-            files.push({
-              path: relPath,
-              packageName: managed.packageName,
-              packageVersion: managed.packageVersion,
-            });
-          }
-        } catch {
-          // Ignore unreadable marker files
-        }
-      } else if (stat.isDirectory()) {
-        walkDir(fullPath);
-      }
-    }
-  };
-
-  walkDir(outputDir);
-  return files;
+function loadManagedFilesMap(outputDir: string): Map<string, ManagedFileMetadata> {
+  return new Map(loadAllManagedFiles(outputDir).map((m) => [m.path, m]));
 }
 
 function cleanupEmptyMarkers(outputDir: string): void {
@@ -328,8 +298,11 @@ function cleanupEmptyMarkers(outputDir: string): void {
         } catch {
           // Ignore unreadable marker files
         }
-      } else if (fs.statSync(fullPath).isDirectory()) {
-        walkDir(fullPath);
+      } else {
+        const lstat = fs.lstatSync(fullPath);
+        if (!lstat.isSymbolicLink() && lstat.isDirectory()) {
+          walkDir(fullPath);
+        }
       }
     }
   };
@@ -344,7 +317,8 @@ function cleanupEmptyDirs(outputDir: string): void {
     let isEmpty = true;
     for (const item of fs.readdirSync(dir)) {
       const fullPath = path.join(dir, item);
-      if (fs.statSync(fullPath).isDirectory()) {
+      const lstat = fs.lstatSync(fullPath);
+      if (!lstat.isSymbolicLink() && lstat.isDirectory()) {
         const childEmpty = walkDir(fullPath);
         if (!childEmpty) isEmpty = false;
       } else {

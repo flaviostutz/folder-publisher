@@ -1298,6 +1298,151 @@ describe('Consumer', () => {
       expect(fs.existsSync(path.join(outputDir, 'docs', 'first.md'))).toBe(false);
       expect(fs.existsSync(path.join(outputDir, 'docs', 'second.md'))).toBe(false);
     });
+
+    it('should not remove directories that contain a symlink during empty-dir cleanup', async () => {
+      const outputDir = path.join(tmpDir, 'output');
+
+      await installMockPackage(
+        'test-symlink-cleanup-package',
+        { 'docs/guide.md': '# Guide' },
+        tmpDir,
+      );
+
+      await extract({
+        packages: ['test-symlink-cleanup-package'],
+        outputDir,
+        packageManager: 'pnpm',
+        cwd: tmpDir,
+      });
+
+      expect(fs.existsSync(path.join(outputDir, 'docs', 'guide.md'))).toBe(true);
+
+      // Place a symlink inside the docs/ directory
+      const symlinkTarget = path.join(tmpDir, 'external-target.txt');
+      fs.writeFileSync(symlinkTarget, 'external content');
+      const symlinkPath = path.join(outputDir, 'docs', 'link.txt');
+      fs.symlinkSync(symlinkTarget, symlinkPath);
+
+      // Reinstall with an empty package so all managed files are deleted, triggering cleanupEmptyDirs
+      await installMockPackage('test-symlink-cleanup-package', {}, tmpDir);
+
+      await extract({
+        packages: ['test-symlink-cleanup-package'],
+        outputDir,
+        packageManager: 'pnpm',
+        cwd: tmpDir,
+      });
+
+      // Managed file must be gone
+      expect(fs.existsSync(path.join(outputDir, 'docs', 'guide.md'))).toBe(false);
+
+      // Directory must NOT be removed because the symlink makes it non-empty
+      expect(fs.existsSync(path.join(outputDir, 'docs'))).toBe(true);
+      expect(fs.lstatSync(symlinkPath).isSymbolicLink()).toBe(true);
+    });
+
+    it('should not extract symlink files found inside an installed package', async () => {
+      const outputDir = path.join(tmpDir, 'output');
+
+      await installMockPackage(
+        'test-symlink-pkg-file',
+        { 'docs/guide.md': '# Guide', 'README.md': '# Readme' },
+        tmpDir,
+      );
+
+      // Inject a symlink directly into the installed package directory
+      const installedPkgDir = path.join(tmpDir, 'node_modules', 'test-symlink-pkg-file');
+      const symlinkTarget = path.join(tmpDir, 'external-target.txt');
+      fs.writeFileSync(symlinkTarget, 'external content');
+      fs.symlinkSync(symlinkTarget, path.join(installedPkgDir, 'docs', 'link.txt'));
+
+      const result = await extract({
+        packages: ['test-symlink-pkg-file'],
+        outputDir,
+        packageManager: 'pnpm',
+        cwd: tmpDir,
+        filenamePatterns: ['**'],
+      });
+
+      // Real files should be extracted
+      expect(fs.existsSync(path.join(outputDir, 'docs', 'guide.md'))).toBe(true);
+      expect(fs.existsSync(path.join(outputDir, 'README.md'))).toBe(true);
+
+      // The symlink must NOT have been extracted
+      expect(fs.existsSync(path.join(outputDir, 'docs', 'link.txt'))).toBe(false);
+      expect(result.added).not.toContain('docs/link.txt');
+    });
+
+    it('should not follow symlinked directories in the output dir when loading managed files', async () => {
+      const outputDir = path.join(tmpDir, 'output');
+
+      await installMockPackage('test-symlink-output-walk', { 'docs/guide.md': '# Guide' }, tmpDir);
+
+      await extract({
+        packages: ['test-symlink-output-walk'],
+        outputDir,
+        packageManager: 'pnpm',
+        cwd: tmpDir,
+      });
+
+      // Add a symlink to an external directory inside the output dir
+      const externalDir = path.join(tmpDir, 'external-dir');
+      fs.mkdirSync(externalDir, { recursive: true });
+      fs.writeFileSync(path.join(externalDir, 'secret.md'), '# Secret');
+      // Also put a .npmdata marker there to detect if it gets accidentally walked
+      fs.writeFileSync(
+        path.join(externalDir, '.npmdata'),
+        'path,packageName,packageVersion,force\n',
+      );
+      fs.symlinkSync(externalDir, path.join(outputDir, 'symlinked-dir'));
+
+      // list() uses loadAllManagedFiles — must not descend into the symlinked directory
+      const listed = list(outputDir);
+      const allPaths = listed.flatMap((e) => e.files);
+      expect(allPaths).not.toContain('symlinked-dir/secret.md');
+
+      // check() uses getPackageFiles and loadAllManagedFiles — must complete without error
+      // and must not report the symlinked file as extra
+      const checkResult = await check({
+        packages: ['test-symlink-output-walk'],
+        outputDir,
+        packageManager: 'pnpm',
+        cwd: tmpDir,
+      });
+      expect(checkResult.ok).toBe(true);
+    });
+
+    it('should not follow symlinked directories in the output dir during cleanup passes', async () => {
+      const outputDir = path.join(tmpDir, 'output');
+
+      await installMockPackage('test-symlink-cleanup-walk', { 'data/file.md': '# File' }, tmpDir);
+
+      await extract({
+        packages: ['test-symlink-cleanup-walk'],
+        outputDir,
+        packageManager: 'pnpm',
+        cwd: tmpDir,
+      });
+
+      // Add a symlink pointing to a directory containing its own .npmdata marker
+      const externalDir = path.join(tmpDir, 'external-cleanup-dir');
+      fs.mkdirSync(externalDir, { recursive: true });
+      fs.writeFileSync(path.join(externalDir, 'extra.md'), '# Extra');
+
+      const symlinkDir = path.join(outputDir, 'linked');
+      fs.symlinkSync(externalDir, symlinkDir);
+
+      // purge triggers cleanupEmptyMarkers and updateGitignores — must not crash or follow symlink
+      const purgeResult = await purge({
+        packages: ['test-symlink-cleanup-walk'],
+        outputDir,
+      });
+
+      expect(purgeResult.deleted).toContain('data/file.md');
+
+      // Symlink must still be intact (not deleted, not followed)
+      expect(fs.lstatSync(symlinkDir).isSymbolicLink()).toBe(true);
+    });
   });
 
   describe('check', () => {
