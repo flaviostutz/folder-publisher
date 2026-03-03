@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.8.0 (2026-03-02)
+
+### Features
+
+* runner support for extract dry-run, check, purge, list [[962b4fb](https://github.com/flaviostutz/npmdata/commit/962b4fbb1e747b62b16157149c8c03d0f86e02ad)]
+* support to outputdir in runner mode [[c59d0b5](https://github.com/flaviostutz/npmdata/commit/c59d0b5c7193e168557c14021327fe311e8ca713)]
+
+### Maintenance
+
+* release: 0.5.1-beta.0 [[1fa5a29](https://github.com/flaviostutz/npmdata/commit/1fa5a29017fe3b9274d222bfda4cfb8e5390ac5f)]
+* release: 0.6.0-beta.0 [[5795425](https://github.com/flaviostutz/npmdata/commit/57954254d33d6742763cf41bce72cccaa32debf0)]
+* release: 0.6.1-beta.0 [[7683ebf](https://github.com/flaviostutz/npmdata/commit/7683ebfd5f10ba46a48c728268090f0e28bbd1bd)]
+* release: 0.7.0-beta.0 [[18cddd2](https://github.com/flaviostutz/npmdata/commit/18cddd29caade28662ecf3b420eca4949f4d1bd7)]
+* create dir in target output [[43acb10](https://github.com/flaviostutz/npmdata/commit/43acb10a4c8fd829921b46541d61c189f2a0f515)]
+* enhance documentation [[02fc795](https://github.com/flaviostutz/npmdata/commit/02fc795b171677370f24b44972f8eae29d584511)]
+* enhancing readme [[26d0afa](https://github.com/flaviostutz/npmdata/commit/26d0afa2c7bae8f43297a80204912430d8a50801)]
+* fix output dir bug [[f44d362](https://github.com/flaviostutz/npmdata/commit/f44d3624e1464b92967a5b90e3bf3a46814b5d93)]
+* make purge process silent in runner extract [[0dc7ad8](https://github.com/flaviostutz/npmdata/commit/0dc7ad8704c240b1cc94baf417cc8532655f4575)]
+* remove stacktrace from runner in data packages [[e09ed7c](https://github.com/flaviostutz/npmdata/commit/e09ed7c340853c357adbc31bc07d76002cd91898)]
+* removing unecessary tag from package.json [[7d917c8](https://github.com/flaviostutz/npmdata/commit/7d917c8ac1648acc20b7817ade753c173b0ae2fd)]
+* update docs with npmdata config details [[db21e70](https://github.com/flaviostutz/npmdata/commit/db21e7021851b9f8987b3a68d7f7afd0da8831a0)]
+
+### Misc
+
+
+### Info
+
+* Authors: Flavio Stutz <flaviostutz@gmail.com>
+
+
 ## 0.7.0 (2026-03-02)
 
 ### Features
