@@ -380,7 +380,12 @@ export function applySymlinks(entry: NpmdataExtractEntry, cwd: string = process.
     const existing = collectManagedSymlinks(targetDir, outputDir);
     for (const [basename] of existing) {
       if (!desired.has(basename)) {
-        fs.unlinkSync(path.join(targetDir, basename));
+        const symlinkPath = path.join(targetDir, basename);
+        fs.unlinkSync(symlinkPath);
+        if (!entry.silent) {
+          // eslint-disable-next-line no-console
+          console.log(`D\t${path.relative(cwd, symlinkPath)}`);
+        }
       }
     }
 
@@ -392,8 +397,16 @@ export function applySymlinks(entry: NpmdataExtractEntry, cwd: string = process.
       if (action === 'update') {
         fs.unlinkSync(symlinkPath);
         fs.symlinkSync(sourcePath, symlinkPath);
+        if (!entry.silent) {
+          // eslint-disable-next-line no-console
+          console.log(`M\t${path.relative(cwd, symlinkPath)}`);
+        }
       } else if (action === 'create') {
         fs.symlinkSync(sourcePath, symlinkPath);
+        if (!entry.silent) {
+          // eslint-disable-next-line no-console
+          console.log(`A\t${path.relative(cwd, symlinkPath)}`);
+        }
       }
       // 'skip' → do nothing
     }
@@ -479,7 +492,7 @@ function runExtract(
     const command = buildExtractCommand(cliPath, effectiveEntry, runCwd);
     execSync(command, { stdio: 'inherit', cwd: runCwd });
     if (!effectiveEntry.dryRun) {
-      applySymlinks(entry, runCwd);
+      applySymlinks(effectiveEntry, runCwd);
       applyContentReplacements(entry, runCwd);
     }
   }
@@ -552,12 +565,13 @@ export function run(binDir: string, argv: string[] = process.argv): void {
 
   const userArgs = argv.slice(2);
 
-  if (userArgs.length === 0 || userArgs.includes('--help')) {
+  if (userArgs.includes('--help')) {
     printHelp(pkg.name, collectAllTags(allEntries));
     return;
   }
 
-  const action = userArgs[0];
+  // Default to 'extract' when no action is provided or the first arg is a flag.
+  const action = userArgs.length === 0 || userArgs[0].startsWith('-') ? 'extract' : userArgs[0];
 
   if (!['extract', 'check', 'list', 'purge'].includes(action)) {
     process.stderr.write(

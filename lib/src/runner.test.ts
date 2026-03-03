@@ -1402,28 +1402,29 @@ describe('runner', () => {
     });
   });
 
-  describe('run – default help', () => {
-    it('shows help and does not extract when no action is provided', () => {
-      setupPackageJson({ name: 'my-pkg' });
-      const writeSpy = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
+  describe('run – default extract', () => {
+    it('runs extract when no action is provided', () => {
+      setupPackageJson({
+        name: 'my-pkg',
+        npmdata: [{ package: 'pkg-a', outputDir: './a' }],
+      });
 
       run(BIN_DIR, ['node', 'script.js']);
 
-      expect(mockExecSync).not.toHaveBeenCalled();
-      expect(writeSpy).toHaveBeenCalled();
-      writeSpy.mockRestore();
+      expect(mockExecSync).toHaveBeenCalled();
+      expect(capturedCommand()).toContain('extract');
     });
 
-    it('shows help when invoked with only the node and script args (default argv)', () => {
-      setupPackageJson({ name: 'my-pkg' });
-      const writeSpy = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    it('runs extract when only flags are provided (no explicit action)', () => {
+      setupPackageJson({
+        name: 'my-pkg',
+        npmdata: [{ package: 'pkg-a', outputDir: './a', tags: ['t1'] }],
+      });
 
-      run(BIN_DIR, ['node', 'script.js']);
+      run(BIN_DIR, ['node', 'script.js', '--tags', 't1']);
 
-      const output = writeSpy.mock.calls[0][0] as string;
-      expect(output).toContain('my-pkg');
-      expect(output).toContain('extract');
-      writeSpy.mockRestore();
+      expect(mockExecSync).toHaveBeenCalled();
+      expect(capturedCommand()).toContain('extract');
     });
   });
 
@@ -1627,6 +1628,98 @@ describe('runner', () => {
 
       const targetDir = path.join(tmpDir, '.github', 'skills');
       expect(fs.lstatSync(path.join(targetDir, 'skill-a')).isSymbolicLink()).toBe(true);
+    });
+
+    it('logs A for created symlinks in git style', () => {
+      const outputDir = path.join(tmpDir, 'out');
+      fs.mkdirSync(path.join(outputDir, 'skills', 'skill-a'), { recursive: true });
+
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const entry: NpmdataExtractEntry = {
+        package: 'pkg',
+        outputDir: 'out',
+        symlinks: [{ source: 'skills/*', target: '.github/skills' }],
+      };
+
+      applySymlinks(entry, tmpDir);
+
+      const expectedPath = path.join('.github', 'skills', 'skill-a');
+      expect(logSpy).toHaveBeenCalledWith(`A\t${expectedPath}`);
+
+      logSpy.mockRestore();
+    });
+
+    it('logs M for updated symlinks in git style', () => {
+      const outputDir = path.join(tmpDir, 'out');
+      const targetDir = path.join(tmpDir, '.github', 'skills');
+      fs.mkdirSync(path.join(outputDir, 'skills', 'skill-a'), { recursive: true });
+
+      // Create the symlink pointing to a different path first so it will be "updated".
+      const oldSource = path.join(outputDir, 'skills', 'old-target');
+      fs.mkdirSync(oldSource, { recursive: true });
+      fs.mkdirSync(targetDir, { recursive: true });
+      fs.symlinkSync(oldSource, path.join(targetDir, 'skill-a'));
+
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const entry: NpmdataExtractEntry = {
+        package: 'pkg',
+        outputDir: 'out',
+        symlinks: [{ source: 'skills/*', target: '.github/skills' }],
+      };
+
+      applySymlinks(entry, tmpDir);
+
+      const expectedPath = path.join('.github', 'skills', 'skill-a');
+      expect(logSpy).toHaveBeenCalledWith(`M\t${expectedPath}`);
+
+      logSpy.mockRestore();
+    });
+
+    it('logs D for removed stale symlinks in git style', () => {
+      const outputDir = path.join(tmpDir, 'out');
+      const targetDir = path.join(tmpDir, '.github', 'skills');
+      fs.mkdirSync(path.join(outputDir, 'skills', 'skill-a'), { recursive: true });
+      fs.mkdirSync(targetDir, { recursive: true });
+
+      const staleTarget = path.join(outputDir, 'skills', 'skill-OLD');
+      fs.symlinkSync(staleTarget, path.join(targetDir, 'skill-OLD'));
+
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const entry: NpmdataExtractEntry = {
+        package: 'pkg',
+        outputDir: 'out',
+        symlinks: [{ source: 'skills/*', target: '.github/skills' }],
+      };
+
+      applySymlinks(entry, tmpDir);
+
+      const expectedPath = path.join('.github', 'skills', 'skill-OLD');
+      expect(logSpy).toHaveBeenCalledWith(`D\t${expectedPath}`);
+
+      logSpy.mockRestore();
+    });
+
+    it('does not log anything when silent is true', () => {
+      const outputDir = path.join(tmpDir, 'out');
+      fs.mkdirSync(path.join(outputDir, 'skills', 'skill-a'), { recursive: true });
+
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const entry: NpmdataExtractEntry = {
+        package: 'pkg',
+        outputDir: 'out',
+        silent: true,
+        symlinks: [{ source: 'skills/*', target: '.github/skills' }],
+      };
+
+      applySymlinks(entry, tmpDir);
+
+      expect(logSpy).not.toHaveBeenCalled();
+
+      logSpy.mockRestore();
     });
   });
 
