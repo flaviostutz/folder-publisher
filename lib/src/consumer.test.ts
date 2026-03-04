@@ -2227,6 +2227,125 @@ describe('compressGitignoreEntries', () => {
     expect(result).not.toContain('a/b/');
     expect(result).not.toContain('a/b/c/');
   });
+
+  it('should treat gitignored directories with no managed files as non-existent when assessing full coverage', () => {
+    // docs/ has one managed file; node_modules/ is gitignored and unmanaged.
+    // compressGitignoreEntries should skip node_modules and still report docs/ as fully managed.
+    fs.mkdirSync(path.join(tmpDir, 'docs'));
+    fs.writeFileSync(path.join(tmpDir, 'docs', 'guide.md'), '# guide');
+    fs.mkdirSync(path.join(tmpDir, 'node_modules', 'some-pkg'), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpDir, 'node_modules', 'some-pkg', 'index.js'),
+      'module.exports={}',
+    );
+
+    // Gitignore at tmpDir has external pattern for node_modules
+    fs.writeFileSync(path.join(tmpDir, '.gitignore'), 'node_modules\n');
+
+    const result = compressGitignoreEntries(['docs/guide.md'], tmpDir);
+    // docs/ is fully managed (node_modules is ignored), so it should be collapsed
+    expect(result).toContain('docs/');
+    expect(result).not.toContain('docs/guide.md');
+    // node_modules should never appear in the output
+    expect(result.some((e) => e.startsWith('node_modules'))).toBe(false);
+  });
+
+  it('should not skip a gitignored directory that has managed files under it', () => {
+    // Managed file lives inside a gitignored directory — it must still appear in the output.
+    fs.mkdirSync(path.join(tmpDir, 'dist'));
+    fs.writeFileSync(path.join(tmpDir, 'dist', 'bundle.md'), '# bundle');
+    fs.writeFileSync(path.join(tmpDir, '.gitignore'), 'dist/\n');
+
+    const result = compressGitignoreEntries(['dist/bundle.md'], tmpDir);
+    expect(result.some((e) => e.includes('dist'))).toBe(true);
+  });
+});
+
+describe('gitignore-aware traversal', () => {
+  // eslint-disable-next-line functional/no-let
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gitignore-traversal-test-'));
+  });
+
+  afterEach(() => {
+    if (fs.existsSync(tmpDir)) {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  it('should not traverse gitignored directories during extract gitignore cleanup', async () => {
+    const outputDir = tmpDir; // outputDir is the project root that also has node_modules
+
+    // Pre-create a .gitignore that marks node_modules as gitignored (external pattern).
+    fs.writeFileSync(path.join(outputDir, '.gitignore'), 'node_modules\n');
+
+    // Set up a package to extract
+    await installMockPackage(
+      'test-gitignore-traversal-pkg',
+      { 'docs/guide.md': '# Guide' },
+      tmpDir,
+    );
+
+    await extract({
+      packages: ['test-gitignore-traversal-pkg'],
+      outputDir,
+      packageManager: 'pnpm',
+      cwd: tmpDir,
+      gitignore: true,
+      filenamePatterns: ['**/*.md'],
+    });
+
+    // Inject an orphaned npmdata .gitignore section inside node_modules.
+    // If the traversal incorrectly enters node_modules, it will clean this section up.
+    // If the traversal correctly skips node_modules, this section will remain intact.
+    const nodeModulesDir = path.join(outputDir, 'node_modules');
+    const injectedGitignorePath = path.join(nodeModulesDir, '.gitignore');
+    fs.writeFileSync(injectedGitignorePath, '# npmdata:start\n.npmdata\n# npmdata:end\n');
+
+    // Second extract triggers updateGitignores — node_modules must not be entered.
+    await extract({
+      packages: ['test-gitignore-traversal-pkg'],
+      outputDir,
+      packageManager: 'pnpm',
+      cwd: tmpDir,
+      gitignore: true,
+      filenamePatterns: ['**/*.md'],
+    });
+
+    // The injected npmdata section in node_modules/.gitignore must still be there,
+    // proving we never entered node_modules to clean it up.
+    const content = fs.readFileSync(injectedGitignorePath, 'utf8');
+    expect(content).toContain('# npmdata:start');
+  });
+
+  it('should not traverse gitignored directories when cleaning up empty dirs after purge', async () => {
+    const outputDir = tmpDir;
+
+    // Mark node_modules as gitignored in the external .gitignore section.
+    fs.writeFileSync(path.join(outputDir, '.gitignore'), 'node_modules\n');
+
+    await installMockPackage('test-purge-gitignore-skip', { 'docs/note.md': '# Note' }, tmpDir);
+
+    await extract({
+      packages: ['test-purge-gitignore-skip'],
+      outputDir,
+      packageManager: 'pnpm',
+      cwd: tmpDir,
+      gitignore: true,
+      filenamePatterns: ['**/*.md'],
+    });
+
+    // node_modules is gitignored and unmanaged.  Purge must complete without error
+    // (i.e. it must not traverse into node_modules and fail on read-only files).
+    await expect(
+      purge({ packages: ['test-purge-gitignore-skip'], outputDir }),
+    ).resolves.not.toThrow();
+
+    // node_modules directory must still be intact
+    expect(fs.existsSync(path.join(outputDir, 'node_modules'))).toBe(true);
+  });
 });
 
 const installMockPackage = async (

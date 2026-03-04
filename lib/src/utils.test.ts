@@ -19,6 +19,9 @@ import {
   isBinaryFile,
   readCsvMarker,
   writeCsvMarker,
+  parseGitignorePatterns,
+  isGitignored,
+  hasManagedFilesUnder,
 } from './utils';
 import { ManagedFileMetadata } from './types';
 
@@ -515,6 +518,73 @@ describe('Utils', () => {
       // eslint-disable-next-line no-bitwise
       const isWritable = (stats.mode & 0o222) !== 0;
       expect(isWritable).toBe(false);
+    });
+  });
+
+  describe('parseGitignorePatterns', () => {
+    it('should parse non-empty, non-comment lines', () => {
+      const content = 'node_modules\n# a comment\ndist/\n\n*.log\n';
+      const result = parseGitignorePatterns(content);
+      expect(result).toEqual(['node_modules', 'dist/', '*.log']);
+    });
+
+    it('should return an empty array for blank content', () => {
+      expect(parseGitignorePatterns('')).toEqual([]);
+      expect(parseGitignorePatterns('\n   \n')).toEqual([]);
+    });
+
+    it('should strip lines that consist only of whitespace', () => {
+      const content = '  \nnode_modules\n  \n';
+      expect(parseGitignorePatterns(content)).toEqual(['node_modules']);
+    });
+  });
+
+  describe('isGitignored', () => {
+    it('should match a simple directory name pattern', () => {
+      expect(isGitignored('node_modules', ['node_modules'])).toBe(true);
+    });
+
+    it('should not match a directory that is not in patterns', () => {
+      expect(isGitignored('src', ['node_modules', 'dist'])).toBe(false);
+    });
+
+    it('should match a trailing-slash pattern', () => {
+      expect(isGitignored('dist', ['dist/'])).toBe(true);
+    });
+
+    it('should match a glob pattern', () => {
+      expect(isGitignored('coverage', ['cov*'])).toBe(true);
+    });
+
+    it('should return false when patterns list is empty', () => {
+      expect(isGitignored('node_modules', [])).toBe(false);
+    });
+  });
+
+  describe('hasManagedFilesUnder', () => {
+    it('should return true when a managed path starts with the given dir prefix', () => {
+      const managed = new Set(['docs/guide.md', 'README.md']);
+      expect(hasManagedFilesUnder('docs', managed)).toBe(true);
+    });
+
+    it('should return false when no managed path is under the given directory', () => {
+      const managed = new Set(['src/index.ts', 'README.md']);
+      expect(hasManagedFilesUnder('docs', managed)).toBe(false);
+    });
+
+    it('should return true when a managed path equals relDir exactly', () => {
+      const managed = new Set(['docs']);
+      expect(hasManagedFilesUnder('docs', managed)).toBe(true);
+    });
+
+    it('should return false for an empty managed set', () => {
+      expect(hasManagedFilesUnder('docs', new Set())).toBe(false);
+    });
+
+    it('should not match a path that merely starts with the same letters', () => {
+      // "documentation/file.md" should NOT be considered "under" dir "doc"
+      const managed = new Set(['documentation/file.md']);
+      expect(hasManagedFilesUnder('doc', managed)).toBe(false);
     });
   });
 });

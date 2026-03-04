@@ -32,12 +32,36 @@ import {
   readCsvMarker,
   writeCsvMarker,
   parsePackageSpec,
+  parseGitignorePatterns,
+  isGitignored,
+  hasManagedFilesUnder,
 } from './utils';
 
 const MARKER_FILE = '.npmdata';
 const GITIGNORE_FILE = '.gitignore';
 const GITIGNORE_START = '# npmdata:start';
 const GITIGNORE_END = '# npmdata:end';
+
+/**
+ * Read the .gitignore at dir and return parsed patterns, excluding the npmdata-managed
+ * section.  These are the "external" patterns (e.g. node_modules, dist) that were written
+ * by the project author rather than by npmdata itself.
+ */
+function readExternalGitignorePatterns(dir: string): string[] {
+  const gitignorePath = path.join(dir, GITIGNORE_FILE);
+  if (!fs.existsSync(gitignorePath)) return [];
+
+  let content = fs.readFileSync(gitignorePath, 'utf8');
+
+  // Strip out the npmdata-managed block so we only act on external entries.
+  const startIdx = content.indexOf(GITIGNORE_START);
+  const endIdx = content.indexOf(GITIGNORE_END);
+  if (startIdx !== -1 && endIdx !== -1 && startIdx < endIdx) {
+    content = content.slice(0, startIdx) + content.slice(endIdx + GITIGNORE_END.length);
+  }
+
+  return parseGitignorePatterns(content);
+}
 
 /**
  * Update (or create) a .gitignore in the given directory so that the managed
@@ -103,6 +127,7 @@ function updateGitignoreForDir(dir: string, managedFilenames: string[], addEntri
  */
 export function compressGitignoreEntries(managedPaths: string[], outputDir: string): string[] {
   const managedSet = new Set(managedPaths);
+  const gitignorePatterns = readExternalGitignorePatterns(outputDir);
 
   // Returns true when every non-special, non-symlink file inside absDir (recursively)
   // appears in managedSet under its full outputDir-relative path (relDir prefix included).
@@ -115,6 +140,11 @@ export function compressGitignoreEntries(managedPaths: string[], outputDir: stri
       const lstat = fs.lstatSync(absEntry);
       if (lstat.isSymbolicLink()) continue;
       if (lstat.isDirectory()) {
+        // Skip gitignored subdirs that have no managed files — they are not our concern
+        // and traversing them (e.g. node_modules) causes serious performance problems.
+        if (isGitignored(entry, gitignorePatterns) && !hasManagedFilesUnder(relEntry, managedSet)) {
+          continue;
+        }
         if (!isDirFullyManaged(absEntry, relEntry)) return false;
       } else if (!managedSet.has(relEntry)) return false;
     }
@@ -190,12 +220,37 @@ export function findNearestMarkerPath(fromDir: string, outputDir: string): strin
 function updateGitignores(outputDir: string, addEntries = true): void {
   if (!fs.existsSync(outputDir)) return;
 
+  // Read managed paths up-front so we can skip gitignored dirs that have no managed files.
+  const managedPaths = new Set<string>();
+  const rootMarkerPathForRead = path.join(outputDir, MARKER_FILE);
+  if (fs.existsSync(rootMarkerPathForRead)) {
+    // eslint-disable-next-line functional/no-try-statements
+    try {
+      for (const m of readCsvMarker(rootMarkerPathForRead)) {
+        managedPaths.add(m.path);
+      }
+    } catch {
+      // ignore unreadable marker
+    }
+  }
+
+  // Read external gitignore patterns once for the whole walk.
+  const gitignorePatterns = readExternalGitignorePatterns(outputDir);
+
   // Remove npmdata sections from all subdirectory .gitignore files (migration / cleanup of old format)
   const cleanupSubDirGitignores = (dir: string): void => {
     for (const item of fs.readdirSync(dir)) {
       const fullPath = path.join(dir, item);
       const lstat = fs.lstatSync(fullPath);
       if (!lstat.isSymbolicLink() && lstat.isDirectory()) {
+        const relPath = path.relative(outputDir, fullPath);
+
+        // Skip gitignored directories that have no managed files under them —
+        // traversing them (e.g. node_modules) causes serious performance problems.
+        if (isGitignored(item, gitignorePatterns) && !hasManagedFilesUnder(relPath, managedPaths)) {
+          continue;
+        }
+
         const subGitignore = path.join(fullPath, GITIGNORE_FILE);
         if (fs.existsSync(subGitignore)) {
           updateGitignoreForDir(fullPath, [], false);
@@ -369,6 +424,9 @@ function cleanupEmptyMarkers(outputDir: string): void {
 }
 
 function cleanupEmptyDirs(outputDir: string): void {
+  const gitignorePatterns = readExternalGitignorePatterns(outputDir);
+  const managedPaths = new Set<string>(loadAllManagedFiles(outputDir).map((m) => m.path));
+
   const walkDir = (dir: string): boolean => {
     if (!fs.existsSync(dir)) return true;
 
@@ -377,6 +435,15 @@ function cleanupEmptyDirs(outputDir: string): void {
       const fullPath = path.join(dir, item);
       const lstat = fs.lstatSync(fullPath);
       if (!lstat.isSymbolicLink() && lstat.isDirectory()) {
+        const relPath = path.relative(outputDir, fullPath);
+
+        // Skip gitignored directories that have no managed files — they are not our concern
+        // and traversing them (e.g. node_modules) causes serious performance problems.
+        if (isGitignored(item, gitignorePatterns) && !hasManagedFilesUnder(relPath, managedPaths)) {
+          isEmpty = false; // treat as non-empty so we preserve the parent directory
+          continue;
+        }
+
         const childEmpty = walkDir(fullPath);
         if (!childEmpty) isEmpty = false;
       } else {
