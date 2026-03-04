@@ -318,6 +318,11 @@ export type NpmdataExtractEntry = {
   silent?: boolean;
 
   /**
+   * Print detailed progress information for each file and step processed (default: false).
+   */
+  verbose?: boolean;
+
+  /**
    * Regex patterns (as strings) to filter files by content. Only files whose content
    * matches at least one pattern are extracted.
    */

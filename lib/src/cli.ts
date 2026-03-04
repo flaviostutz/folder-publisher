@@ -31,7 +31,7 @@ export async function cli(processArgs: string[]): Promise<number> {
     return 0;
   }
 
-  if (command === '--version' || command === '-v') {
+  if (command === '--version') {
     const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '../package.json')).toString());
     console.log(pkg.version);
     return 0;
@@ -47,6 +47,8 @@ export async function cli(processArgs: string[]): Promise<number> {
     let initGitignore = true;
     // eslint-disable-next-line functional/no-let
     let initUnmanaged = false;
+    // eslint-disable-next-line functional/no-let
+    let initVerbose = false;
 
     // Parse args for --files and --packages flags
     // eslint-disable-next-line functional/no-let
@@ -61,6 +63,8 @@ export async function cli(processArgs: string[]): Promise<number> {
         initGitignore = false;
       } else if (args[i] === '--unmanaged') {
         initUnmanaged = true;
+      } else if (args[i] === '--verbose' || args[i] === '-v') {
+        initVerbose = true;
       }
     }
 
@@ -76,6 +80,14 @@ export async function cli(processArgs: string[]): Promise<number> {
       ? additionalPackagesFlag.split(',').map((p) => p.trim())
       : [];
 
+    if (initVerbose) {
+      console.log(`[verbose] init: file patterns: ${fileGlobs.join(', ')}`);
+      if (additionalPackages.length > 0)
+        console.log(`[verbose] init: additional packages: ${additionalPackages.join(', ')}`);
+      console.log(`[verbose] init: gitignore=${initGitignore} unmanaged=${initUnmanaged}`);
+      console.log(`[verbose] init: writing publisher configuration...`);
+    }
+
     const result = await initPublisher(fileGlobs, {
       additionalPackages,
       gitignore: initGitignore,
@@ -87,6 +99,9 @@ export async function cli(processArgs: string[]): Promise<number> {
       return 1;
     }
 
+    if (initVerbose) {
+      console.log(`[verbose] init: configuration written successfully`);
+    }
     console.log(`\n${result.message}`);
     if (result.publishedFiles) {
       console.log(
@@ -104,11 +119,14 @@ export async function cli(processArgs: string[]): Promise<number> {
   if (command === 'list') {
     let outDir = process.cwd();
     let outputFlagProvided = false;
+    let listVerbose = false;
 
     for (let i = 1; i < args.length; i++) {
       if (args[i] === '--output' || args[i] === '-o') {
         outDir = args[++i];
         outputFlagProvided = true;
+      } else if (args[i] === '--verbose' || args[i] === '-v') {
+        listVerbose = true;
       } else if (!args[i].startsWith('-')) {
         outDir = args[i];
         outputFlagProvided = true;
@@ -119,7 +137,18 @@ export async function cli(processArgs: string[]): Promise<number> {
       console.info(`Listing managed files in current directory: ${outDir}`);
     }
 
+    if (listVerbose) {
+      console.log(`[verbose] list: resolved output directory: ${path.resolve(outDir)}`);
+      console.log(`[verbose] list: scanning for .npmdata marker files...`);
+    }
+
     const entries = list(path.resolve(outDir));
+
+    if (listVerbose) {
+      console.log(
+        `[verbose] list: found ${entries.length} managed package entr${entries.length === 1 ? 'y' : 'ies'}`,
+      );
+    }
 
     if (entries.length === 0) {
       console.log('No managed files found.');
@@ -127,6 +156,11 @@ export async function cli(processArgs: string[]): Promise<number> {
     }
 
     for (const entry of entries) {
+      if (listVerbose) {
+        console.log(
+          `[verbose] list: package ${entry.packageName}@${entry.packageVersion} has ${entry.files.length} managed file${entry.files.length === 1 ? '' : 's'}`,
+        );
+      }
       console.log(`\n${entry.packageName}@${entry.packageVersion} (${entry.files.length} files)`);
       for (const f of entry.files) {
         console.log(`  ${f}`);
@@ -142,6 +176,7 @@ export async function cli(processArgs: string[]): Promise<number> {
     let purgeOutputFlagProvided = false;
     let purgeDryRun = false;
     let purgeSilent = false;
+    let purgeVerbose = false;
 
     for (let i = 1; i < args.length; i++) {
       if (args[i] === '--packages') {
@@ -153,6 +188,8 @@ export async function cli(processArgs: string[]): Promise<number> {
         purgeDryRun = true;
       } else if (args[i] === '--silent') {
         purgeSilent = true;
+      } else if (args[i] === '--verbose' || args[i] === '-v') {
+        purgeVerbose = true;
       } else if (!args[i].startsWith('-')) {
         purgeOutDir = args[i];
         purgeOutputFlagProvided = true;
@@ -171,6 +208,12 @@ export async function cli(processArgs: string[]): Promise<number> {
 
     const purgePackages = purgePackageSpecs.split(',').map((s) => s.trim());
 
+    if (purgeVerbose) {
+      console.log(`[verbose] purge: packages to remove: ${purgePackages.join(', ')}`);
+      console.log(`[verbose] purge: output directory: ${path.resolve(purgeOutDir)}`);
+      console.log(`[verbose] purge: dryRun=${purgeDryRun}`);
+    }
+
     const purgeOnProgress = purgeSilent
       ? // eslint-disable-next-line no-undefined
         undefined
@@ -178,9 +221,17 @@ export async function cli(processArgs: string[]): Promise<number> {
           switch (event.type) {
             case 'package-start':
               console.log(`\n>> Package ${event.packageName}`);
+              if (purgeVerbose) {
+                console.log(
+                  `[verbose] purge: starting removal of managed files for ${event.packageName}`,
+                );
+              }
               break;
             case 'file-deleted':
               console.log(`D\t${event.file}`);
+              if (purgeVerbose) {
+                console.log(`[verbose] purge: deleted file: ${event.file}`);
+              }
               break;
             default:
               break;
@@ -222,6 +273,7 @@ export async function cli(processArgs: string[]): Promise<number> {
   let dryRun = false;
   let upgrade = false;
   let silent = false;
+  let verbose = false;
   let unmanaged = false;
   let filenamePatterns: string | undefined;
   let contentRegexes: string | undefined;
@@ -237,6 +289,8 @@ export async function cli(processArgs: string[]): Promise<number> {
       keepExisting = true;
     } else if (args[i] === '--silent') {
       silent = true;
+    } else if (args[i] === '--verbose' || args[i] === '-v') {
+      verbose = true;
     } else if (args[i] === '--no-gitignore') {
       gitignore = false;
     } else if (args[i] === '--dry-run') {
@@ -268,6 +322,19 @@ export async function cli(processArgs: string[]): Promise<number> {
     console.info(`No --output specified. Using current directory: ${outDir}`);
   }
 
+  if (verbose && !silent) {
+    console.log(`[verbose] ${command}: packages=${packageSpecs} output=${path.resolve(outDir)}`);
+    if (command === 'extract') {
+      console.log(
+        `[verbose] extract: force=${force} keepExisting=${keepExisting} dryRun=${dryRun} upgrade=${upgrade} unmanaged=${unmanaged} gitignore=${gitignore}`,
+      );
+      if (filenamePatterns)
+        console.log(`[verbose] extract: file filter patterns: ${filenamePatterns}`);
+      if (contentRegexes)
+        console.log(`[verbose] extract: content regex filters: ${contentRegexes}`);
+    }
+  }
+
   if (force && keepExisting) {
     console.error('Error: --force and --keep-existing cannot be used together');
     return 1;
@@ -283,15 +350,41 @@ export async function cli(processArgs: string[]): Promise<number> {
         switch (event.type) {
           case 'package-start':
             console.log(`\n>> Package ${event.packageName}@${event.packageVersion}`);
+            if (verbose) {
+              console.log(
+                `[verbose] ${command}: starting processing of package ${event.packageName}@${event.packageVersion}`,
+              );
+            }
             break;
           case 'file-added':
             console.log(`A\t${event.file}`);
+            if (verbose) {
+              console.log(`[verbose] ${command}: added file: ${event.file}`);
+            }
             break;
           case 'file-modified':
             console.log(`M\t${event.file}`);
+            if (verbose) {
+              console.log(`[verbose] ${command}: modified file: ${event.file}`);
+            }
             break;
           case 'file-deleted':
             console.log(`D\t${event.file}`);
+            if (verbose) {
+              console.log(`[verbose] ${command}: deleted file: ${event.file}`);
+            }
+            break;
+          case 'file-skipped':
+            if (verbose) {
+              console.log(`[verbose] ${command}: skipped file: ${event.file}`);
+            }
+            break;
+          case 'package-end':
+            if (verbose) {
+              console.log(
+                `[verbose] ${command}: finished processing package ${event.packageName}@${event.packageVersion}`,
+              );
+            }
             break;
           default:
             break;
@@ -323,9 +416,17 @@ export async function cli(processArgs: string[]): Promise<number> {
       if (dryRun) console.info('Dry run: simulating extraction (no files will be written)...');
       else console.info('Extracting package files...');
     }
+    if (verbose) {
+      console.log(`[verbose] extract: installing/resolving packages: ${packages.join(', ')}`);
+    }
 
     const result = await extract(config);
 
+    if (verbose) {
+      console.log(
+        `[verbose] extract: processing complete - added=${result.added.length} modified=${result.modified.length} deleted=${result.deleted.length} skipped=${result.skipped.length}`,
+      );
+    }
     console.log(
       `\nExtraction complete: ${result.added.length} added, ${result.modified.length} modified, ${result.deleted.length} deleted, ${result.skipped.length} skipped${dryRun ? ' (dry run)' : ''}`,
     );
@@ -335,14 +436,31 @@ export async function cli(processArgs: string[]): Promise<number> {
   if (command === 'check') {
     const relDir = path.relative(process.cwd(), config.outputDir) || '.';
     console.log(`\nChecking data from ${config.packages.join(', ')} against ${relDir}...`);
+    if (verbose) {
+      console.log(`[verbose] check: resolved output directory: ${config.outputDir}`);
+      console.log(`[verbose] check: installing/resolving packages: ${config.packages.join(', ')}`);
+    }
     const result = await check(config);
+    if (verbose) {
+      console.log(
+        `[verbose] check: comparison complete, ${result.sourcePackages.length} package${result.sourcePackages.length === 1 ? '' : 's'} checked`,
+      );
+    }
 
     for (const pkg of result.sourcePackages) {
       const pkgLabel = `${pkg.name}@${pkg.version}`;
       if (pkg.ok) {
         console.log(`  ${pkgLabel}: in sync`);
+        if (verbose) {
+          console.log(`[verbose] check: package ${pkgLabel} - all files match`);
+        }
       } else {
         console.log(`  ${pkgLabel}: out of sync`);
+        if (verbose) {
+          console.log(
+            `[verbose] check: package ${pkgLabel} - missing=${pkg.differences.missing.length} modified=${pkg.differences.modified.length} extra=${pkg.differences.extra.length}`,
+          );
+        }
         for (const f of pkg.differences.missing) console.log(`    - missing:  ${f}`);
         for (const f of pkg.differences.modified) console.log(`    ~ modified: ${f}`);
         for (const f of pkg.differences.extra) console.log(`    + extra:    ${f}`);
@@ -378,7 +496,8 @@ Commands:
 
 Global Options:
   --help, -h                   Show this help message
-  --version, -v                Show version
+  --version                    Show version
+  --verbose, -v                Print detailed progress information for each step
 
 Init Options:
   --files <patterns>           Comma-separated glob patterns of files to publish (required)
@@ -387,6 +506,7 @@ Init Options:
                                Each spec is "name" or "name@version"
                                e.g. "shared-data@^1.0.0,other-pkg@2.x"
   --unmanaged                  Mark all npmdata entries as unmanaged (see Extract options)
+  --verbose, -v                Print detailed progress information for each step
 
 Extract / Check Options:
   --packages <specs>           Comma-separated package specs to extract from (required).
@@ -403,6 +523,7 @@ Extract / Check Options:
   --dry-run                    Simulate extraction without writing any files
   --upgrade                    Re-install packages even when a satisfying version is installed
   --silent                     Print only the final result line, suppressing package and file listing
+  --verbose, -v                Print detailed progress information for each step
   --files <pattern>            Comma-separated shell glob patterns to filter files
   --content-regex <regex>      Regex pattern to match file contents
 
@@ -411,9 +532,11 @@ Purge Options:
   --output, -o <dir>           Output directory to purge from (default: current directory)
   --dry-run                    Simulate purge without removing any files
   --silent                     Suppress per-file output
+  --verbose, -v                Print detailed progress information for each step
 
 List Options:
   --output, -o <dir>           Directory to inspect (default: current directory)
+  --verbose, -v                Print detailed progress information for each step
 
 Examples:
   npx npmdata init --files "data/**,docs/**,configs/*.json"

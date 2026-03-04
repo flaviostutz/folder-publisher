@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable no-console */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -127,9 +128,10 @@ describe('CLI', () => {
     expect(console.log).toHaveBeenCalled();
   });
 
-  it('should print version and return 0 for -v flag', async () => {
+  it('should treat -v as verbose flag (not version) and return 1 for unknown command', async () => {
+    // -v alone is now the verbose flag; without a valid command it errors
     const exitCode = await cli(['node', 'cli.js', '-v']);
-    expect(exitCode).toBe(0);
+    expect(exitCode).toBe(1);
   });
 
   describe('init command', () => {
@@ -243,6 +245,45 @@ describe('CLI', () => {
         gitignore: true,
         unmanaged: true,
       });
+    });
+
+    it('should print verbose logs when --verbose flag is set for init', async () => {
+      mockInitPublisher.mockResolvedValue({
+        success: true,
+        message: 'Done',
+        publishedFiles: ['docs/**'],
+      });
+
+      await cli([
+        'node',
+        'cli.js',
+        'init',
+        '--files',
+        'docs/**',
+        '--packages',
+        'pkg-a,pkg-b',
+        '--verbose',
+      ]);
+
+      const allLogs = (console.log as jest.Mock).mock.calls.flat().join('\n');
+      expect(allLogs).toContain('[verbose] init: file patterns');
+      expect(allLogs).toContain('[verbose] init: additional packages: pkg-a, pkg-b');
+      expect(allLogs).toContain('[verbose] init: gitignore=');
+      expect(allLogs).toContain('[verbose] init: configuration written successfully');
+    });
+
+    it('should print additionalPackages from result when present', async () => {
+      mockInitPublisher.mockResolvedValue({
+        success: true,
+        message: 'Done',
+        publishedFiles: ['docs/**'],
+        additionalPackages: ['shared-data@^1.0.0', 'other-pkg'],
+      });
+
+      await cli(['node', 'cli.js', 'init', '--files', 'docs/**']);
+
+      const allLogs = (console.log as jest.Mock).mock.calls.flat().join('\n');
+      expect(allLogs).toContain('Additional data source packages: shared-data@^1.0.0, other-pkg');
     });
   });
 
@@ -604,6 +645,106 @@ describe('CLI', () => {
       expect(allLogs).not.toContain('file1.md');
       expect(allLogs).toContain('Extraction complete');
     });
+
+    it('should return 1 when --force and --keep-existing are both set', async () => {
+      const exitCode = await cli([
+        'node',
+        'cli.js',
+        'extract',
+        '--packages',
+        'my-pkg',
+        '--output',
+        './output',
+        '--force',
+        '--keep-existing',
+      ]);
+
+      expect(exitCode).toBe(1);
+      expect(console.error).toHaveBeenCalledWith(
+        expect.stringContaining('--force and --keep-existing cannot be used together'),
+      );
+    });
+
+    it('should print verbose logs for extract command', async () => {
+      mockExtract.mockResolvedValue(defaultExtractResult);
+
+      await cli([
+        'node',
+        'cli.js',
+        'extract',
+        '--packages',
+        'my-pkg',
+        '--output',
+        './output',
+        '--verbose',
+        '--files',
+        '**/*.md',
+        '--content-regex',
+        'foo',
+      ]);
+
+      const allLogs = (console.log as jest.Mock).mock.calls.flat().join('\n');
+      expect(allLogs).toContain('[verbose] extract:');
+      expect(allLogs).toContain('file filter patterns: **/*.md');
+      expect(allLogs).toContain('content regex filters: foo');
+      expect(allLogs).toContain('installing/resolving packages');
+      expect(allLogs).toContain('[verbose] extract: processing complete');
+    });
+
+    it('should log verbose events for file-skipped and package-end via onProgress', async () => {
+      mockExtract.mockImplementation(async (config) => {
+        config.onProgress?.({
+          type: 'package-start',
+          packageName: 'my-pkg',
+          packageVersion: '1.0.0',
+        });
+        config.onProgress?.({ type: 'file-skipped', packageName: 'my-pkg', file: 'skip.md' });
+        config.onProgress?.({
+          type: 'package-end',
+          packageName: 'my-pkg',
+          packageVersion: '1.0.0',
+        });
+        return defaultExtractResult;
+      });
+
+      await cli([
+        'node',
+        'cli.js',
+        'extract',
+        '--packages',
+        'my-pkg',
+        '--output',
+        './output',
+        '--verbose',
+      ]);
+
+      const allLogs = (console.log as jest.Mock).mock.calls.flat().join('\n');
+      expect(allLogs).toContain('skipped file: skip.md');
+      expect(allLogs).toContain('finished processing package my-pkg@1.0.0');
+    });
+
+    it('should log verbose file-modified and file-deleted via onProgress', async () => {
+      mockExtract.mockImplementation(async (config) => {
+        config.onProgress?.({ type: 'file-modified', packageName: 'my-pkg', file: 'change.md' });
+        config.onProgress?.({ type: 'file-deleted', packageName: 'my-pkg', file: 'gone.md' });
+        return defaultExtractResult;
+      });
+
+      await cli([
+        'node',
+        'cli.js',
+        'extract',
+        '--packages',
+        'my-pkg',
+        '--output',
+        './output',
+        '--verbose',
+      ]);
+
+      const allLogs = (console.log as jest.Mock).mock.calls.flat().join('\n');
+      expect(allLogs).toContain('modified file: change.md');
+      expect(allLogs).toContain('deleted file: gone.md');
+    });
   });
 
   describe('check subcommand', () => {
@@ -655,6 +796,85 @@ describe('CLI', () => {
 
       await cli(['node', 'cli.js', 'check', '--packages', 'my-pkg', './output', '--check']);
       expect(mockCheck).toHaveBeenCalled();
+    });
+
+    it('should print verbose logs when --verbose is set and packages are in sync', async () => {
+      mockCheck.mockResolvedValue(makeCheckResult(true));
+
+      await cli([
+        'node',
+        'cli.js',
+        'check',
+        '--packages',
+        'my-pkg',
+        '--output',
+        './output',
+        '--verbose',
+      ]);
+
+      const allLogs = (console.log as jest.Mock).mock.calls.flat().join('\n');
+      expect(allLogs).toContain('[verbose] check: resolved output directory');
+      expect(allLogs).toContain('[verbose] check: installing/resolving packages');
+      expect(allLogs).toContain('[verbose] check: comparison complete');
+      expect(allLogs).toContain('[verbose] check: package my-pkg@1.0.0 - all files match');
+    });
+
+    it('should print verbose logs when --verbose is set and packages are out of sync', async () => {
+      mockCheck.mockResolvedValue(
+        makeCheckResult(false, ['missing.md'], ['modified.md'], ['extra.md']),
+      );
+
+      await cli([
+        'node',
+        'cli.js',
+        'check',
+        '--packages',
+        'my-pkg',
+        '--output',
+        './output',
+        '--verbose',
+      ]);
+
+      const allLogs = (console.log as jest.Mock).mock.calls.flat().join('\n');
+      expect(allLogs).toContain(
+        '[verbose] check: package my-pkg@1.0.0 - missing=1 modified=1 extra=1',
+      );
+    });
+
+    it('should print "s" suffix when multiple packages are checked in verbose mode', async () => {
+      const result = {
+        ok: true,
+        differences: { missing: [], modified: [], extra: [] },
+        sourcePackages: [
+          {
+            name: 'pkg-a',
+            version: '1.0.0',
+            ok: true,
+            differences: { missing: [], modified: [], extra: [] },
+          },
+          {
+            name: 'pkg-b',
+            version: '2.0.0',
+            ok: true,
+            differences: { missing: [], modified: [], extra: [] },
+          },
+        ],
+      };
+      mockCheck.mockResolvedValue(result);
+
+      await cli([
+        'node',
+        'cli.js',
+        'check',
+        '--packages',
+        'pkg-a,pkg-b',
+        '--output',
+        './output',
+        '--verbose',
+      ]);
+
+      const allLogs = (console.log as jest.Mock).mock.calls.flat().join('\n');
+      expect(allLogs).toContain('2 packages checked');
     });
   });
 
@@ -761,6 +981,132 @@ describe('CLI', () => {
       const allLogs = (console.log as jest.Mock).mock.calls.flat().join('\n');
       expect(allLogs).toContain('2 deleted');
     });
+
+    it('should accept positional output directory argument for purge', async () => {
+      await cli(['node', 'cli.js', 'purge', '--packages', 'my-pkg', './custom-dir']);
+
+      expect(mockPurge).toHaveBeenCalledWith(
+        expect.objectContaining({
+          outputDir: expect.stringContaining('custom-dir'),
+        }),
+      );
+    });
+
+    it('should suppress the no-output warning when --silent is set for purge', async () => {
+      await cli(['node', 'cli.js', 'purge', '--packages', 'my-pkg', '--silent']);
+
+      const infoLogs = (console.info as jest.Mock).mock.calls.flat().join('\n');
+      expect(infoLogs).not.toContain('No --output specified');
+    });
+
+    it('should print verbose logs when --verbose is set for purge', async () => {
+      await cli([
+        'node',
+        'cli.js',
+        'purge',
+        '--packages',
+        'my-pkg,pkg-b',
+        '--output',
+        './data',
+        '--verbose',
+      ]);
+
+      const allLogs = (console.log as jest.Mock).mock.calls.flat().join('\n');
+      expect(allLogs).toContain('[verbose] purge: packages to remove: my-pkg, pkg-b');
+      expect(allLogs).toContain('[verbose] purge: output directory');
+      expect(allLogs).toContain('[verbose] purge: dryRun=false');
+    });
+
+    it('should print dry-run info message when --dry-run is set for purge', async () => {
+      await cli([
+        'node',
+        'cli.js',
+        'purge',
+        '--packages',
+        'my-pkg',
+        '--output',
+        './data',
+        '--dry-run',
+      ]);
+
+      const infoLogs = (console.info as jest.Mock).mock.calls.flat().join('\n');
+      expect(infoLogs).toContain('Dry run: simulating purge');
+    });
+
+    it('should log package-start and file-deleted events via purge onProgress', async () => {
+      mockPurge.mockImplementation(async (config) => {
+        (config as Record<string, any>).onProgress?.({
+          type: 'package-start',
+          packageName: 'my-pkg',
+        });
+        (config as Record<string, any>).onProgress?.({
+          type: 'file-deleted',
+          packageName: 'my-pkg',
+          file: 'docs/a.md',
+        });
+        return { added: [], modified: [], deleted: ['docs/a.md'], skipped: [], sourcePackages: [] };
+      });
+
+      await cli(['node', 'cli.js', 'purge', '--packages', 'my-pkg', '--output', './data']);
+
+      const allLogs = (console.log as jest.Mock).mock.calls.flat().join('\n');
+      expect(allLogs).toContain('>> Package my-pkg');
+      expect(allLogs).toContain('D\tdocs/a.md');
+    });
+
+    it('should log purge onProgress events with verbose details', async () => {
+      mockPurge.mockImplementation(async (config) => {
+        (config as Record<string, any>).onProgress?.({
+          type: 'package-start',
+          packageName: 'my-pkg',
+        });
+        (config as Record<string, any>).onProgress?.({
+          type: 'file-deleted',
+          packageName: 'my-pkg',
+          file: 'docs/a.md',
+        });
+        return { added: [], modified: [], deleted: ['docs/a.md'], skipped: [], sourcePackages: [] };
+      });
+
+      await cli([
+        'node',
+        'cli.js',
+        'purge',
+        '--packages',
+        'my-pkg',
+        '--output',
+        './data',
+        '--verbose',
+      ]);
+
+      const allLogs = (console.log as jest.Mock).mock.calls.flat().join('\n');
+      expect(allLogs).toContain('[verbose] purge: starting removal of managed files for my-pkg');
+      expect(allLogs).toContain('[verbose] purge: deleted file: docs/a.md');
+    });
+
+    it('should print (dry run) suffix when --dry-run is set in purge summary', async () => {
+      mockPurge.mockResolvedValue({
+        added: [],
+        modified: [],
+        deleted: ['docs/a.md'],
+        skipped: [],
+        sourcePackages: [],
+      });
+
+      await cli([
+        'node',
+        'cli.js',
+        'purge',
+        '--packages',
+        'my-pkg',
+        '--output',
+        './data',
+        '--dry-run',
+      ]);
+
+      const allLogs = (console.log as jest.Mock).mock.calls.flat().join('\n');
+      expect(allLogs).toContain('dry run');
+    });
   });
 
   describe('list subcommand', () => {
@@ -796,6 +1142,43 @@ describe('CLI', () => {
 
       const infoLogs = (console.info as jest.Mock).mock.calls.flat().join('\n');
       expect(infoLogs).toContain('Listing managed files in current directory');
+    });
+
+    it('should accept positional output directory argument for list', async () => {
+      mockList.mockReturnValue([]);
+
+      await cli(['node', 'cli.js', 'list', './custom-dir']);
+
+      expect(mockList).toHaveBeenCalledWith(expect.stringContaining('custom-dir'));
+    });
+
+    it('should print verbose logs when --verbose is set for list with no entries', async () => {
+      mockList.mockReturnValue([]);
+
+      await cli(['node', 'cli.js', 'list', '--output', './data', '--verbose']);
+
+      const allLogs = (console.log as jest.Mock).mock.calls.flat().join('\n');
+      expect(allLogs).toContain('[verbose] list: resolved output directory');
+      expect(allLogs).toContain('[verbose] list: scanning for .npmdata marker files');
+      expect(allLogs).toContain('[verbose] list: found 0 managed package entries');
+    });
+
+    it('should print verbose logs per entry when --verbose is set for list', async () => {
+      mockList.mockReturnValue([
+        { packageName: 'my-pkg', packageVersion: '1.0.0', files: ['docs/a.md'] },
+        {
+          packageName: 'other-pkg',
+          packageVersion: '2.0.0',
+          files: ['data/b.json', 'data/c.json'],
+        },
+      ]);
+
+      await cli(['node', 'cli.js', 'list', '--output', './data', '--verbose']);
+
+      const allLogs = (console.log as jest.Mock).mock.calls.flat().join('\n');
+      expect(allLogs).toContain('[verbose] list: found 2 managed package entries');
+      expect(allLogs).toContain('my-pkg@1.0.0 has 1 managed file');
+      expect(allLogs).toContain('other-pkg@2.0.0 has 2 managed files');
     });
   });
 });

@@ -1054,6 +1054,86 @@ describe('runner', () => {
     });
   });
 
+  describe('run – check action with contentReplacements', () => {
+    // eslint-disable-next-line functional/no-let
+    let tmpDir: string;
+
+    beforeEach(() => {
+      (fs.mkdirSync as jest.Mock).mockImplementation(
+        jest.requireActual<typeof fs>('node:fs').mkdirSync,
+      );
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'runner-run-check-cr-test-'));
+    });
+
+    afterEach(() => {
+      if (fs.existsSync(tmpDir)) {
+        fs.rmSync(tmpDir, { recursive: true });
+      }
+    });
+
+    it('exits with status 1 and writes to stderr when contentReplacements are out of sync', () => {
+      mockReadFileSync.mockReturnValueOnce(
+        Buffer.from(
+          JSON.stringify({
+            name: 'my-pkg',
+            npmdata: [
+              {
+                package: 'pkg-a',
+                outputDir: '.',
+                contentReplacements: [
+                  { files: 'doc.md', match: '<!-- old -->', replace: '<!-- new -->' },
+                ],
+              },
+            ],
+          }),
+        ),
+      );
+      mockReadFileSync.mockImplementation(jest.requireActual<typeof fs>('node:fs').readFileSync);
+      fs.writeFileSync(path.join(tmpDir, 'doc.md'), '<!-- old -->');
+
+      const stderrSpy = jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
+      // eslint-disable-next-line functional/no-let
+      let capturedExitCode: number | undefined;
+      const exitSpy = jest.spyOn(process, 'exit').mockImplementation((code) => {
+        capturedExitCode = code as number;
+        throw Object.assign(new Error('process.exit'), { code });
+      });
+
+      expect(() => run(BIN_DIR, ['node', 'script.js', 'check', '--output', tmpDir])).toThrow();
+
+      expect(capturedExitCode).toBe(1);
+      expect(stderrSpy).toHaveBeenCalledWith(
+        expect.stringContaining('content-replacement out of sync'),
+      );
+      stderrSpy.mockRestore();
+      exitSpy.mockRestore();
+    });
+
+    it('does not throw when contentReplacements are already in sync', () => {
+      mockReadFileSync.mockReturnValueOnce(
+        Buffer.from(
+          JSON.stringify({
+            name: 'my-pkg',
+            npmdata: [
+              {
+                package: 'pkg-a',
+                outputDir: '.',
+                contentReplacements: [
+                  { files: 'doc.md', match: '<!-- old -->', replace: '<!-- new -->' },
+                ],
+              },
+            ],
+          }),
+        ),
+      );
+      mockReadFileSync.mockImplementation(jest.requireActual<typeof fs>('node:fs').readFileSync);
+      // File already has replacement applied – no diff expected
+      fs.writeFileSync(path.join(tmpDir, 'doc.md'), '<!-- new -->');
+
+      expect(() => run(BIN_DIR, ['node', 'script.js', 'check', '--output', tmpDir])).not.toThrow();
+    });
+  });
+
   describe('run – list action', () => {
     it('runs a list command for each unique outputDir', () => {
       setupPackageJson({
@@ -1205,6 +1285,95 @@ describe('runner', () => {
       expect(mockExecSync).toHaveBeenCalledTimes(1);
       expect(capturedCommand()).toContain('purge');
       expect(capturedCommand()).toContain('--packages "my-pkg"');
+    });
+  });
+
+  describe('run – purge action with symlinks', () => {
+    // eslint-disable-next-line functional/no-let
+    let tmpDir: string;
+
+    beforeEach(() => {
+      (fs.mkdirSync as jest.Mock).mockImplementation(
+        jest.requireActual<typeof fs>('node:fs').mkdirSync,
+      );
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'runner-run-purge-sym-test-'));
+    });
+
+    afterEach(() => {
+      if (fs.existsSync(tmpDir)) {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    it('removes stale managed symlinks from target dirs after purge', () => {
+      const outputDir = path.join(tmpDir, 'out');
+      const targetDir = path.join(tmpDir, '.github', 'skills');
+      fs.mkdirSync(path.join(outputDir, 'skills'), { recursive: true });
+      fs.mkdirSync(targetDir, { recursive: true });
+
+      // Dead managed symlink pointing into outputDir (simulates a previously extracted file)
+      const staleSource = path.join(outputDir, 'skills', 'skill-OLD');
+      fs.symlinkSync(staleSource, path.join(targetDir, 'skill-OLD'));
+
+      mockReadFileSync.mockReturnValueOnce(
+        Buffer.from(
+          JSON.stringify({
+            name: 'my-pkg',
+            npmdata: [
+              {
+                package: 'pkg-a',
+                outputDir: 'out',
+                symlinks: [{ source: 'skills/*', target: '.github/skills' }],
+              },
+            ],
+          }),
+        ),
+      );
+      mockReadFileSync.mockImplementation(jest.requireActual<typeof fs>('node:fs').readFileSync);
+
+      run(BIN_DIR, ['node', 'script.js', 'purge', '--output', tmpDir]);
+
+      const linkGone = ((): boolean => {
+        // eslint-disable-next-line functional/no-try-statements
+        try {
+          fs.lstatSync(path.join(targetDir, 'skill-OLD'));
+          return false;
+        } catch {
+          return true;
+        }
+      })();
+      expect(linkGone).toBe(true);
+    });
+
+    it('does not remove symlinks when --dry-run is active', () => {
+      const outputDir = path.join(tmpDir, 'out');
+      const targetDir = path.join(tmpDir, '.github', 'skills');
+      fs.mkdirSync(path.join(outputDir, 'skills'), { recursive: true });
+      fs.mkdirSync(targetDir, { recursive: true });
+
+      const staleSource = path.join(outputDir, 'skills', 'skill-OLD');
+      fs.symlinkSync(staleSource, path.join(targetDir, 'skill-OLD'));
+
+      mockReadFileSync.mockReturnValueOnce(
+        Buffer.from(
+          JSON.stringify({
+            name: 'my-pkg',
+            npmdata: [
+              {
+                package: 'pkg-a',
+                outputDir: 'out',
+                symlinks: [{ source: 'skills/*', target: '.github/skills' }],
+              },
+            ],
+          }),
+        ),
+      );
+      mockReadFileSync.mockImplementation(jest.requireActual<typeof fs>('node:fs').readFileSync);
+
+      run(BIN_DIR, ['node', 'script.js', 'purge', '--dry-run', '--output', tmpDir]);
+
+      // Symlink must survive because dry-run skips applySymlinks
+      expect(fs.lstatSync(path.join(targetDir, 'skill-OLD')).isSymbolicLink()).toBe(true);
     });
   });
 

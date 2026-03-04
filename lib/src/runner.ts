@@ -33,6 +33,7 @@ function buildExtractCommand(
   const gitignoreFlag = entry.gitignore === false ? ' --no-gitignore' : '';
   const unmanagedFlag = entry.unmanaged ? ' --unmanaged' : '';
   const silentFlag = entry.silent ? ' --silent' : '';
+  const verboseFlag = entry.verbose ? ' --verbose' : '';
   const dryRunFlag = entry.dryRun ? ' --dry-run' : '';
   const upgradeFlag = entry.upgrade ? ' --upgrade' : '';
   const filesFlag =
@@ -41,7 +42,7 @@ function buildExtractCommand(
     entry.contentRegexes && entry.contentRegexes.length > 0
       ? ` --content-regex "${entry.contentRegexes.join(',')}"`
       : '';
-  return `node "${cliPath}" extract --packages "${entry.package}"${outputFlag}${forceFlag}${keepExistingFlag}${gitignoreFlag}${unmanagedFlag}${silentFlag}${dryRunFlag}${upgradeFlag}${filesFlag}${contentRegexFlag}`;
+  return `node "${cliPath}" extract --packages "${entry.package}"${outputFlag}${forceFlag}${keepExistingFlag}${gitignoreFlag}${unmanagedFlag}${silentFlag}${verboseFlag}${dryRunFlag}${upgradeFlag}${filesFlag}${contentRegexFlag}`;
 }
 
 /**
@@ -53,13 +54,14 @@ export function buildCheckCommand(
   cwd: string = process.cwd(),
 ): string {
   const outputFlag = ` --output "${path.resolve(cwd, entry.outputDir)}"`;
+  const verboseFlag = entry.verbose ? ' --verbose' : '';
   const filesFlag =
     entry.files && entry.files.length > 0 ? ` --files "${entry.files.join(',')}"` : '';
   const contentRegexFlag =
     entry.contentRegexes && entry.contentRegexes.length > 0
       ? ` --content-regex "${entry.contentRegexes.join(',')}"`
       : '';
-  return `node "${cliPath}" check --packages "${entry.package}"${outputFlag}${filesFlag}${contentRegexFlag}`;
+  return `node "${cliPath}" check --packages "${entry.package}"${outputFlag}${verboseFlag}${filesFlag}${contentRegexFlag}`;
 }
 
 /**
@@ -69,9 +71,11 @@ export function buildListCommand(
   cliPath: string,
   outputDir: string,
   cwd: string = process.cwd(),
+  verbose = false,
 ): string {
   const resolvedOutput = path.resolve(cwd, outputDir);
-  return `node "${cliPath}" list --output "${resolvedOutput}"`;
+  const verboseFlag = verbose ? ' --verbose' : '';
+  return `node "${cliPath}" list --output "${resolvedOutput}"${verboseFlag}`;
 }
 
 /**
@@ -85,10 +89,11 @@ export function buildPurgeCommand(
 ): string {
   const { name } = parseEntryPackageName(entry.package);
   const outputFlag = ` --output "${path.resolve(cwd, entry.outputDir)}"`;
-  // Propagate silent/dry-run settings from the entry if present.
+  // Propagate silent/dry-run/verbose settings from the entry if present.
   const silentFlag = entry.silent ? ' --silent' : '';
+  const verboseFlag = entry.verbose ? ' --verbose' : '';
   const dryRunFlag = entry.dryRun ? ' --dry-run' : '';
-  return `node "${cliPath}" purge --packages "${name}"${outputFlag}${silentFlag}${dryRunFlag}`;
+  return `node "${cliPath}" purge --packages "${name}"${outputFlag}${silentFlag}${verboseFlag}${dryRunFlag}`;
 }
 
 /**
@@ -128,6 +133,7 @@ export function printHelp(packageName: string, availableTags: string[]): void {
       '  --output, -o <dir>  Base directory for resolving all outputDir paths (default: cwd)',
       '  --dry-run           Simulate changes without writing or deleting any files',
       '  --tags <tag1,tag2>  Limit to entries whose tags overlap (comma-separated)',
+      '  --verbose, -v       Print detailed progress information for each step',
       '',
       `Available tags: ${tagsLine}`,
       '',
@@ -182,6 +188,13 @@ export function parseDryRunFromArgv(argv: string[]): boolean {
  */
 export function parseSilentFromArgv(argv: string[]): boolean {
   return argv.includes('--silent');
+}
+
+/**
+ * Returns true when --verbose or -v appears in the argv array.
+ */
+export function parseVerboseFromArgv(argv: string[]): boolean {
+  return argv.includes('--verbose') || argv.includes('-v');
 }
 
 /**
@@ -487,18 +500,42 @@ function runExtract(
   runCwd: string,
   dryRunFromArgv: boolean,
   silentFromArgv: boolean,
+  verboseFromArgv: boolean,
 ): void {
+  if (verboseFromArgv) {
+    // eslint-disable-next-line no-console
+    console.log(
+      `[verbose] extract: processing ${entries.length} entr${entries.length === 1 ? 'y' : 'ies'} (cwd: ${runCwd})`,
+    );
+  }
   for (const entry of entries) {
     const effectiveEntry: NpmdataExtractEntry = {
       ...entry,
       dryRun: entry.dryRun || dryRunFromArgv,
       silent: entry.silent || silentFromArgv,
+      verbose: entry.verbose || verboseFromArgv,
     };
+    if (verboseFromArgv) {
+      // eslint-disable-next-line no-console
+      console.log(`[verbose] extract: entry package=${entry.package} outputDir=${entry.outputDir}`);
+    }
     fs.mkdirSync(path.resolve(runCwd, entry.outputDir), { recursive: true });
     const command = buildExtractCommand(cliPath, effectiveEntry, runCwd);
+    if (verboseFromArgv) {
+      // eslint-disable-next-line no-console
+      console.log(`[verbose] extract: running command: ${command}`);
+    }
     execSync(command, { stdio: 'inherit', cwd: runCwd });
     if (!effectiveEntry.dryRun) {
+      if (verboseFromArgv) {
+        // eslint-disable-next-line no-console
+        console.log(`[verbose] extract: applying symlinks for ${entry.package}`);
+      }
       applySymlinks(effectiveEntry, runCwd);
+      if (verboseFromArgv) {
+        // eslint-disable-next-line no-console
+        console.log(`[verbose] extract: applying content replacements for ${entry.package}`);
+      }
       applyContentReplacements(entry, runCwd);
     }
   }
@@ -507,6 +544,10 @@ function runExtract(
   // the output directory contains only files from the currently active tag group.
   // Suppress the "Purging managed files..." banner for these implicit purges.
   for (const entry of excludedEntries) {
+    if (verboseFromArgv) {
+      // eslint-disable-next-line no-console
+      console.log(`[verbose] extract: purging excluded entry ${entry.package} (tag filter active)`);
+    }
     const effectiveEntry: NpmdataExtractEntry = {
       ...entry,
       dryRun: entry.dryRun || dryRunFromArgv,
@@ -517,21 +558,76 @@ function runExtract(
   }
 }
 
-function runCheck(entries: NpmdataExtractEntry[], cliPath: string, runCwd: string): void {
+function runCheck(
+  entries: NpmdataExtractEntry[],
+  cliPath: string,
+  runCwd: string,
+  verboseFromArgv: boolean,
+): void {
+  if (verboseFromArgv) {
+    // eslint-disable-next-line no-console
+    console.log(
+      `[verbose] check: verifying ${entries.length} entr${entries.length === 1 ? 'y' : 'ies'} (cwd: ${runCwd})`,
+    );
+  }
+  // eslint-disable-next-line functional/no-let
+  let outOfSyncFiles: string[] = [];
   for (const entry of entries) {
-    const command = buildCheckCommand(cliPath, entry, runCwd);
+    if (verboseFromArgv) {
+      // eslint-disable-next-line no-console
+      console.log(
+        `[verbose] check: checking package=${entry.package} outputDir=${entry.outputDir}`,
+      );
+    }
+    const effectiveEntry: NpmdataExtractEntry = {
+      ...entry,
+      verbose: entry.verbose || verboseFromArgv,
+    };
+    const command = buildCheckCommand(cliPath, effectiveEntry, runCwd);
+    if (verboseFromArgv) {
+      // eslint-disable-next-line no-console
+      console.log(`[verbose] check: running command: ${command}`);
+    }
     execSync(command, { stdio: 'inherit', cwd: runCwd });
+    if (verboseFromArgv) {
+      // eslint-disable-next-line no-console
+      console.log(`[verbose] check: checking content replacements for ${entry.package}`);
+    }
+    const entryOutOfSync = checkContentReplacements(entry, runCwd);
+    for (const f of entryOutOfSync) {
+      process.stderr.write(`content-replacement out of sync: ${f}\n`);
+    }
+    // eslint-disable-next-line functional/immutable-data
+    outOfSyncFiles = [...outOfSyncFiles, ...entryOutOfSync];
+  }
+  if (outOfSyncFiles.length > 0) {
+    throw Object.assign(new Error('content-replacements out of sync'), { status: 1 });
   }
 }
 
-function runList(allEntries: NpmdataExtractEntry[], cliPath: string, runCwd: string): void {
+function runList(
+  allEntries: NpmdataExtractEntry[],
+  cliPath: string,
+  runCwd: string,
+  verboseFromArgv: boolean,
+): void {
   // Collect unique resolved output dirs (tag filter not applied; list is informational).
   const seenDirs = new Set<string>();
+  if (verboseFromArgv) {
+    // eslint-disable-next-line no-console
+    console.log(
+      `[verbose] list: listing managed files across ${allEntries.length} entr${allEntries.length === 1 ? 'y' : 'ies'} (cwd: ${runCwd})`,
+    );
+  }
   for (const entry of allEntries) {
     const resolvedDir = path.resolve(runCwd, entry.outputDir);
     if (!seenDirs.has(resolvedDir)) {
       seenDirs.add(resolvedDir);
-      const command = buildListCommand(cliPath, entry.outputDir, runCwd);
+      if (verboseFromArgv) {
+        // eslint-disable-next-line no-console
+        console.log(`[verbose] list: scanning directory ${resolvedDir}`);
+      }
+      const command = buildListCommand(cliPath, entry.outputDir, runCwd, verboseFromArgv);
       execSync(command, { stdio: 'inherit', cwd: runCwd });
     }
   }
@@ -543,15 +639,38 @@ function runPurge(
   runCwd: string,
   dryRunFromArgv: boolean,
   silentFromArgv: boolean,
+  verboseFromArgv: boolean,
 ): void {
+  if (verboseFromArgv) {
+    // eslint-disable-next-line no-console
+    console.log(
+      `[verbose] purge: processing ${entries.length} entr${entries.length === 1 ? 'y' : 'ies'} (cwd: ${runCwd})`,
+    );
+  }
   for (const entry of entries) {
     const effectiveEntry: NpmdataExtractEntry = {
       ...entry,
       dryRun: entry.dryRun || dryRunFromArgv,
       silent: entry.silent || silentFromArgv,
+      verbose: entry.verbose || verboseFromArgv,
     };
+    if (verboseFromArgv) {
+      // eslint-disable-next-line no-console
+      console.log(`[verbose] purge: entry package=${entry.package} outputDir=${entry.outputDir}`);
+    }
     const command = buildPurgeCommand(cliPath, effectiveEntry, runCwd);
+    if (verboseFromArgv) {
+      // eslint-disable-next-line no-console
+      console.log(`[verbose] purge: running command: ${command}`);
+    }
     execSync(command, { stdio: 'inherit', cwd: runCwd });
+    if (!effectiveEntry.dryRun) {
+      if (verboseFromArgv) {
+        // eslint-disable-next-line no-console
+        console.log(`[verbose] purge: cleaning up symlinks for ${entry.package}`);
+      }
+      applySymlinks(effectiveEntry, runCwd);
+    }
   }
 }
 
@@ -597,17 +716,31 @@ export function run(binDir: string, argv: string[] = process.argv): void {
   const runCwd = parsedOutput ? path.resolve(process.cwd(), parsedOutput) : process.cwd();
   const dryRunFromArgv = parseDryRunFromArgv(userArgs);
   const silentFromArgv = parseSilentFromArgv(userArgs);
+  const verboseFromArgv = parseVerboseFromArgv(userArgs);
+
+  if (verboseFromArgv) {
+    // eslint-disable-next-line no-console
+    console.log(`[verbose] runner: action=${action} entries=${entries.length} cwd=${runCwd}`);
+  }
 
   // eslint-disable-next-line functional/no-try-statements
   try {
     if (action === 'extract') {
-      runExtract(entries, excludedEntries, cliPath, runCwd, dryRunFromArgv, silentFromArgv);
+      runExtract(
+        entries,
+        excludedEntries,
+        cliPath,
+        runCwd,
+        dryRunFromArgv,
+        silentFromArgv,
+        verboseFromArgv,
+      );
     } else if (action === 'check') {
-      runCheck(entries, cliPath, runCwd);
+      runCheck(entries, cliPath, runCwd, verboseFromArgv);
     } else if (action === 'list') {
-      runList(allEntries, cliPath, runCwd);
+      runList(allEntries, cliPath, runCwd, verboseFromArgv);
     } else if (action === 'purge') {
-      runPurge(entries, cliPath, runCwd, dryRunFromArgv, silentFromArgv);
+      runPurge(entries, cliPath, runCwd, dryRunFromArgv, silentFromArgv, verboseFromArgv);
     }
   } catch (error: unknown) {
     // The child process already printed the error via stdio:inherit.

@@ -1443,6 +1443,50 @@ describe('Consumer', () => {
       // Symlink must still be intact (not deleted, not followed)
       expect(fs.lstatSync(symlinkDir).isSymbolicLink()).toBe(true);
     });
+
+    it('should delete created files on extraction error', async () => {
+      const outputDir = path.join(tmpDir, 'output');
+      fs.mkdirSync(outputDir, { recursive: true });
+
+      // Package has two files: 'new-file.md' (new) and 'conflict.md' (conflicts with existing).
+      // Files in a package directory are read in filesystem order, so we name them so that
+      // 'new-file.md' sorts before 'conflict.md' — but the conflict file already exists on
+      // disk, which triggers an error. The 'new-file.md' created before the error must be
+      // rolled back.
+      await installMockPackage(
+        'test-cleanup-on-error-package',
+        {
+          'aaa-created.md': '# Created before conflict',
+          'zzz-conflict.md': '# From package',
+        },
+        tmpDir,
+      );
+
+      // Place an unmanaged file that will clash with 'zzz-conflict.md'
+      fs.writeFileSync(path.join(outputDir, 'zzz-conflict.md'), 'existing unmanaged content');
+
+      await expect(
+        extract({
+          packages: ['test-cleanup-on-error-package'],
+          outputDir,
+          packageManager: 'pnpm',
+          cwd: tmpDir,
+          filenamePatterns: ['**'],
+          force: false,
+        }),
+      ).rejects.toThrow('File conflict');
+
+      // 'aaa-created.md' must have been deleted as part of rollback
+      expect(fs.existsSync(path.join(outputDir, 'aaa-created.md'))).toBe(false);
+
+      // Pre-existing conflicting file must remain untouched
+      expect(fs.readFileSync(path.join(outputDir, 'zzz-conflict.md'), 'utf8')).toBe(
+        'existing unmanaged content',
+      );
+
+      // No marker file must have been created
+      expect(fs.existsSync(path.join(outputDir, '.npmdata'))).toBe(false);
+    });
   });
 
   describe('check', () => {

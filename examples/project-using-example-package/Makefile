@@ -8,7 +8,7 @@ install:
 
 build: install
 # 	pnpm exec example-files-package
-	pnpm exec example-files-package extract --files "docs/**/*,conf/**/*"
+	pnpm exec example-files-package extract --files "docs/**/*,conf/**/*" --output output
 
 test:
 	# install the data package and extract the data
@@ -29,7 +29,13 @@ test:
 	pnpm exec example-files-package --tags "basic" --output output
 	test -e output/.configs/app.config.json
 
-	pnpm exec example-files-package check --tags basic --output output
+	pnpm exec example-files-package check --tags "basic" --output output
+
+	pnpm exec example-files-package list --output output
+
+	pnpm exec example-files-package purge --output output
+	test ! -e output/.configs/app.config.json
+	test ! -e output/docs/adrs/adr-001-sample1.md
 
 clean:
 	@rm -rf node_modules

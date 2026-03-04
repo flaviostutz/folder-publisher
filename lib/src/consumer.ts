@@ -3,6 +3,7 @@
 /* eslint-disable no-continue */
 /* eslint-disable functional/immutable-data */
 /* eslint-disable no-restricted-syntax */
+/* eslint-disable max-depth */
 import fs from 'node:fs';
 import path from 'node:path';
 import { execSync } from 'node:child_process';
@@ -368,166 +369,186 @@ async function extractFiles(
   // eslint-disable-next-line functional/no-let
   let wasForced = false;
 
-  for (const packageFile of packageFiles) {
-    if (
-      !matchesFilenamePattern(
-        packageFile.relPath,
-        config.filenamePatterns ?? DEFAULT_FILENAME_PATTERNS,
-      ) ||
-      !matchesContentRegex(packageFile.fullPath, config.contentRegexes)
-    ) {
-      continue;
-    }
+  try {
+    for (const packageFile of packageFiles) {
+      if (
+        !matchesFilenamePattern(
+          packageFile.relPath,
+          config.filenamePatterns ?? DEFAULT_FILENAME_PATTERNS,
+        ) ||
+        !matchesContentRegex(packageFile.fullPath, config.contentRegexes)
+      ) {
+        continue;
+      }
 
-    const destPath = path.join(config.outputDir, packageFile.relPath);
-    if (!dryRun) ensureDir(path.dirname(destPath));
+      const destPath = path.join(config.outputDir, packageFile.relPath);
+      if (!dryRun) ensureDir(path.dirname(destPath));
 
-    const existingOwner = existingManagedMap.get(packageFile.relPath);
+      const existingOwner = existingManagedMap.get(packageFile.relPath);
 
-    // In unmanaged mode, skip files that already exist on disk.
-    if (config.unmanaged && fs.existsSync(destPath)) {
-      changes.skipped.push(packageFile.relPath);
-      emit?.({ type: 'file-skipped', packageName, file: packageFile.relPath });
-      continue;
-    }
+      // In unmanaged mode, skip files that already exist on disk.
+      if (config.unmanaged && fs.existsSync(destPath)) {
+        changes.skipped.push(packageFile.relPath);
+        emit?.({ type: 'file-skipped', packageName, file: packageFile.relPath });
+        continue;
+      }
 
-    // In keep-existing mode, skip files that already exist on disk but create missing ones normally.
-    if (config.keepExisting && fs.existsSync(destPath)) {
-      changes.skipped.push(packageFile.relPath);
-      emit?.({ type: 'file-skipped', packageName, file: packageFile.relPath });
-      continue;
-    }
+      // In keep-existing mode, skip files that already exist on disk but create missing ones normally.
+      if (config.keepExisting && fs.existsSync(destPath)) {
+        changes.skipped.push(packageFile.relPath);
+        emit?.({ type: 'file-skipped', packageName, file: packageFile.relPath });
+        continue;
+      }
 
-    if (fs.existsSync(destPath)) {
-      if (existingOwner?.packageName === packageName) {
-        if (calculateFileHash(packageFile.fullPath) === calculateFileHash(destPath)) {
-          changes.skipped.push(packageFile.relPath);
-          emit?.({ type: 'file-skipped', packageName, file: packageFile.relPath });
+      if (fs.existsSync(destPath)) {
+        if (existingOwner?.packageName === packageName) {
+          if (calculateFileHash(packageFile.fullPath) === calculateFileHash(destPath)) {
+            changes.skipped.push(packageFile.relPath);
+            emit?.({ type: 'file-skipped', packageName, file: packageFile.relPath });
+          } else {
+            if (!dryRun) copyFile(packageFile.fullPath, destPath);
+            changes.modified.push(packageFile.relPath);
+            emit?.({ type: 'file-modified', packageName, file: packageFile.relPath });
+          }
+          wasForced = false;
         } else {
+          // File exists but is owned by a different package (clash) or is unmanaged (conflict).
+          // Behaviour is identical in both cases: throw when force is false, overwrite when true.
+          if (!config.force) {
+            if (existingOwner) {
+              throw new Error(
+                `Package clash: ${packageFile.relPath} already managed by ${existingOwner.packageName}@${existingOwner.packageVersion}. Cannot extract from ${packageName}. Use force: true to override.`,
+              );
+            }
+            throw new Error(
+              `File conflict: ${packageFile.relPath} already exists and is not managed by npmdata. Use force: true to override.`,
+            );
+          }
+          // force=true: overwrite the existing file and take ownership.
           if (!dryRun) copyFile(packageFile.fullPath, destPath);
           changes.modified.push(packageFile.relPath);
           emit?.({ type: 'file-modified', packageName, file: packageFile.relPath });
-        }
-        wasForced = false;
-      } else {
-        // File exists but is owned by a different package (clash) or is unmanaged (conflict).
-        // Behaviour is identical in both cases: throw when force is false, overwrite when true.
-        if (!config.force) {
+          wasForced = true;
           if (existingOwner) {
-            throw new Error(
-              `Package clash: ${packageFile.relPath} already managed by ${existingOwner.packageName}@${existingOwner.packageVersion}. Cannot extract from ${packageName}. Use force: true to override.`,
-            );
+            // Evict the previous owner's entry from the marker file.
+            const claimDir = path.dirname(packageFile.relPath) || '.';
+            if (!forceClaimedByDir.has(claimDir)) forceClaimedByDir.set(claimDir, new Set());
+            forceClaimedByDir.get(claimDir)!.add(path.basename(packageFile.relPath));
           }
-          throw new Error(
-            `File conflict: ${packageFile.relPath} already exists and is not managed by npmdata. Use force: true to override.`,
-          );
         }
-        // force=true: overwrite the existing file and take ownership.
+      } else {
         if (!dryRun) copyFile(packageFile.fullPath, destPath);
-        changes.modified.push(packageFile.relPath);
-        emit?.({ type: 'file-modified', packageName, file: packageFile.relPath });
-        wasForced = true;
-        if (existingOwner) {
-          // Evict the previous owner's entry from the marker file.
-          const claimDir = path.dirname(packageFile.relPath) || '.';
-          if (!forceClaimedByDir.has(claimDir)) forceClaimedByDir.set(claimDir, new Set());
-          forceClaimedByDir.get(claimDir)!.add(path.basename(packageFile.relPath));
+        changes.added.push(packageFile.relPath);
+        emit?.({ type: 'file-added', packageName, file: packageFile.relPath });
+        wasForced = false;
+      }
+
+      if (!dryRun && !config.unmanaged && fs.existsSync(destPath)) fs.chmodSync(destPath, 0o444);
+
+      if (!config.unmanaged) {
+        const dir = path.dirname(packageFile.relPath) || '.';
+        if (!addedByDir.has(dir)) {
+          addedByDir.set(dir, []);
+        }
+        addedByDir.get(dir)!.push({
+          path: path.basename(packageFile.relPath),
+          packageName,
+          packageVersion: installedVersion,
+          force: wasForced,
+        });
+      }
+    }
+
+    // Delete files that were managed by this package but are no longer in the package
+    for (const [relPath, owner] of existingManagedMap) {
+      if (owner.packageName !== packageName) continue;
+
+      const fileDir = path.dirname(relPath) === '.' ? '.' : path.dirname(relPath);
+      const dirFiles = addedByDir.get(fileDir) ?? [];
+      const stillPresent = dirFiles.some((m) => m.path === path.basename(relPath));
+
+      if (!stillPresent) {
+        const fullPath = path.join(config.outputDir, relPath);
+        if (fs.existsSync(fullPath)) {
+          if (!dryRun) removeFile(fullPath);
+          changes.deleted.push(relPath);
+          emit?.({ type: 'file-deleted', packageName, file: relPath });
+        }
+        const dir = path.dirname(relPath) === '.' ? '.' : path.dirname(relPath);
+        if (!addedByDir.has(dir)) {
+          deletedOnlyDirs.add(dir);
         }
       }
-    } else {
-      if (!dryRun) copyFile(packageFile.fullPath, destPath);
-      changes.added.push(packageFile.relPath);
-      emit?.({ type: 'file-added', packageName, file: packageFile.relPath });
-      wasForced = false;
     }
 
-    if (!dryRun && !config.unmanaged && fs.existsSync(destPath)) fs.chmodSync(destPath, 0o444);
+    if (!dryRun && !config.unmanaged) {
+      // Write updated marker files
+      // eslint-disable-next-line unicorn/no-keyword-prefix
+      for (const [dir, newFiles] of addedByDir) {
+        const markerDir = dir === '.' ? config.outputDir : path.join(config.outputDir, dir);
+        ensureDir(markerDir);
+        const markerPath = path.join(markerDir, MARKER_FILE);
 
-    if (!config.unmanaged) {
-      const dir = path.dirname(packageFile.relPath) || '.';
-      if (!addedByDir.has(dir)) {
-        addedByDir.set(dir, []);
-      }
-      addedByDir.get(dir)!.push({
-        path: path.basename(packageFile.relPath),
-        packageName,
-        packageVersion: installedVersion,
-        force: wasForced,
-      });
-    }
-  }
-
-  // Delete files that were managed by this package but are no longer in the package
-  for (const [relPath, owner] of existingManagedMap) {
-    if (owner.packageName !== packageName) continue;
-
-    const fileDir = path.dirname(relPath) === '.' ? '.' : path.dirname(relPath);
-    const dirFiles = addedByDir.get(fileDir) ?? [];
-    const stillPresent = dirFiles.some((m) => m.path === path.basename(relPath));
-
-    if (!stillPresent) {
-      const fullPath = path.join(config.outputDir, relPath);
-      if (fs.existsSync(fullPath)) {
-        if (!dryRun) removeFile(fullPath);
-        changes.deleted.push(relPath);
-        emit?.({ type: 'file-deleted', packageName, file: relPath });
-      }
-      const dir = path.dirname(relPath) === '.' ? '.' : path.dirname(relPath);
-      if (!addedByDir.has(dir)) {
-        deletedOnlyDirs.add(dir);
-      }
-    }
-  }
-
-  if (!dryRun && !config.unmanaged) {
-    // Write updated marker files
-    // eslint-disable-next-line unicorn/no-keyword-prefix
-    for (const [dir, newFiles] of addedByDir) {
-      const markerDir = dir === '.' ? config.outputDir : path.join(config.outputDir, dir);
-      ensureDir(markerDir);
-      const markerPath = path.join(markerDir, MARKER_FILE);
-
-      // eslint-disable-next-line unicorn/no-null
-      let existingFiles: ManagedFileMetadata[] = [];
-      if (fs.existsSync(markerPath)) {
-        existingFiles = readCsvMarker(markerPath);
-      }
-
-      // Keep entries from other packages, replace entries from this package.
-      // Also evict entries from other packages for any file force-claimed in this pass.
-      const claimedInDir = forceClaimedByDir.get(dir);
-      const mergedFiles: ManagedFileMetadata[] = [
-        ...existingFiles.filter((m) => m.packageName !== packageName && !claimedInDir?.has(m.path)),
-        // eslint-disable-next-line unicorn/no-keyword-prefix
-        ...newFiles,
-      ];
-
-      writeCsvMarker(markerPath, mergedFiles);
-    }
-
-    // Update marker files for directories where all managed files were removed (no new files added)
-    for (const dir of deletedOnlyDirs) {
-      const markerDir = dir === '.' ? config.outputDir : path.join(config.outputDir, dir);
-      const markerPath = path.join(markerDir, MARKER_FILE);
-
-      if (!fs.existsSync(markerPath)) continue;
-
-      try {
-        const existingFiles = readCsvMarker(markerPath);
-        const mergedFiles = existingFiles.filter((m) => m.packageName !== packageName);
-
-        if (mergedFiles.length === 0) {
-          fs.chmodSync(markerPath, 0o644);
-          fs.unlinkSync(markerPath);
-        } else {
-          writeCsvMarker(markerPath, mergedFiles);
+        // eslint-disable-next-line unicorn/no-null
+        let existingFiles: ManagedFileMetadata[] = [];
+        if (fs.existsSync(markerPath)) {
+          existingFiles = readCsvMarker(markerPath);
         }
-      } catch {
-        // Ignore unreadable marker files
-      }
-    }
 
-    cleanupEmptyMarkers(config.outputDir);
+        // Keep entries from other packages, replace entries from this package.
+        // Also evict entries from other packages for any file force-claimed in this pass.
+        const claimedInDir = forceClaimedByDir.get(dir);
+        const mergedFiles: ManagedFileMetadata[] = [
+          ...existingFiles.filter(
+            (m) => m.packageName !== packageName && !claimedInDir?.has(m.path),
+          ),
+          // eslint-disable-next-line unicorn/no-keyword-prefix
+          ...newFiles,
+        ];
+
+        writeCsvMarker(markerPath, mergedFiles);
+      }
+
+      // Update marker files for directories where all managed files were removed (no new files added)
+      for (const dir of deletedOnlyDirs) {
+        const markerDir = dir === '.' ? config.outputDir : path.join(config.outputDir, dir);
+        const markerPath = path.join(markerDir, MARKER_FILE);
+
+        if (!fs.existsSync(markerPath)) continue;
+
+        try {
+          const existingFiles = readCsvMarker(markerPath);
+          const mergedFiles = existingFiles.filter((m) => m.packageName !== packageName);
+
+          if (mergedFiles.length === 0) {
+            fs.chmodSync(markerPath, 0o644);
+            fs.unlinkSync(markerPath);
+          } else {
+            writeCsvMarker(markerPath, mergedFiles);
+          }
+        } catch {
+          // Ignore unreadable marker files
+        }
+      }
+
+      cleanupEmptyMarkers(config.outputDir);
+    }
+  } catch (error) {
+    // On error, delete all files that were created during this extraction run
+    if (!dryRun) {
+      for (const relPath of changes.added) {
+        const fullPath = path.join(config.outputDir, relPath);
+        if (fs.existsSync(fullPath)) {
+          try {
+            removeFile(fullPath);
+          } catch {
+            // ignore cleanup errors
+          }
+        }
+      }
+      cleanupEmptyDirs(config.outputDir);
+    }
+    throw error;
   }
 
   emit?.({ type: 'package-end', packageName, packageVersion: installedVersion });
