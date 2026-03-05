@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.10.0 (2026-03-04)
+
+### Features
+
+* formatted logs [[29825d5](https://github.com/flaviostutz/npmdata/commit/29825d5a71960a3e7c720fccdf80330667497089)]
+
+### Maintenance
+
+* .gitignore and .npmdata in output root folder, compression of .gitignore files when all managed in same folder [[7a65c84](https://github.com/flaviostutz/npmdata/commit/7a65c842fddd6159a809fc399f3825ed8972e7d6)]
+* ignore unmanaged and gitignored folder during traversals [[6eee1c9](https://github.com/flaviostutz/npmdata/commit/6eee1c953b0e8c8412e0bef3eb6e4b9ccd686ec8)]
+* new feat [[5269a6f](https://github.com/flaviostutz/npmdata/commit/5269a6f785e4634634dae75a3eda096f3dbd0f48)]
+
+### Misc
+
+
+### Info
+
+* Authors: Flavio Stutz <flaviostutz@gmail.com>
+
+
 ## 0.9.1 (2026-03-02)
 
 ### Features
