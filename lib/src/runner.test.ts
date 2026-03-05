@@ -1196,6 +1196,36 @@ describe('runner', () => {
       expect(cmd).toContain('--files "data/**"');
       expect(cmd).toContain('--content-regex "pattern"');
     });
+
+    it('skips entries with unmanaged:true during check', () => {
+      setupPackageJson({
+        name: 'my-pkg',
+        npmdata: [
+          { package: 'pkg-managed', outputDir: './a' },
+          { package: 'pkg-unmanaged', outputDir: './b', unmanaged: true },
+        ],
+      });
+
+      run(BIN_DIR, ['node', 'script.js', 'check']);
+
+      expect(mockExecSync).toHaveBeenCalledTimes(1);
+      expect(capturedCommand()).toContain('pkg-managed');
+      expect(capturedCommand()).not.toContain('pkg-unmanaged');
+    });
+
+    it('skips all entries during check when --unmanaged flag is set', () => {
+      setupPackageJson({
+        name: 'my-pkg',
+        npmdata: [
+          { package: 'pkg-a', outputDir: './a' },
+          { package: 'pkg-b', outputDir: './b' },
+        ],
+      });
+
+      run(BIN_DIR, ['node', 'script.js', 'check', '--unmanaged']);
+
+      expect(mockExecSync).not.toHaveBeenCalled();
+    });
   });
 
   describe('run – check action with contentReplacements', () => {

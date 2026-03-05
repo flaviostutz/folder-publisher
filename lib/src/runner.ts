@@ -644,18 +644,29 @@ function runCheck(
   cliPath: string,
   runCwd: string,
   verboseFromArgv: boolean,
+  unmanagedFromArgv: boolean,
 ): void {
+  const managedEntries = entries.filter((entry) => {
+    const isUnmanaged = entry.unmanaged || unmanagedFromArgv;
+    if (isUnmanaged && verboseFromArgv) {
+      // eslint-disable-next-line no-console
+      console.log(
+        `[verbose] check: skipping unmanaged entry package=${entry.package} outputDir=${entry.outputDir}`,
+      );
+    }
+    return !isUnmanaged;
+  });
   if (verboseFromArgv) {
     // eslint-disable-next-line no-console
     console.log(
-      `[verbose] check: verifying ${entries.length} entr${entries.length === 1 ? 'y' : 'ies'} (cwd: ${runCwd})`,
+      `[verbose] check: verifying ${managedEntries.length} entr${managedEntries.length === 1 ? 'y' : 'ies'} (cwd: ${runCwd})`,
     );
   }
   // eslint-disable-next-line functional/no-let
   let outOfSyncFiles: string[] = [];
   // eslint-disable-next-line functional/no-let
   let checkIndex = 0;
-  for (const entry of entries) {
+  for (const entry of managedEntries) {
     if (checkIndex > 0) {
       process.stdout.write('\n');
     }
@@ -693,8 +704,8 @@ function runCheck(
   if (outOfSyncFiles.length > 0) {
     throw Object.assign(new Error('content-replacements out of sync'), { status: 1 });
   }
-  if (entries.length > 1) {
-    process.stdout.write(`\nTotal checked: ${entries.length} packages\n`);
+  if (managedEntries.length > 1) {
+    process.stdout.write(`\nTotal checked: ${managedEntries.length} packages\n`);
   }
 }
 
@@ -853,7 +864,7 @@ export function run(binDir: string, argv: string[] = process.argv): void {
         unmanagedFromArgv,
       );
     } else if (action === 'check') {
-      runCheck(entries, cliPath, runCwd, verboseFromArgv);
+      runCheck(entries, cliPath, runCwd, verboseFromArgv, unmanagedFromArgv);
     } else if (action === 'list') {
       runList(allEntries, cliPath, runCwd, verboseFromArgv);
     } else if (action === 'purge') {
