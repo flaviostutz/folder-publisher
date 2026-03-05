@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.10.2 (2026-03-05)
+
+### Maintenance
+
+* release: 0.10.1 [[6e766fb](https://github.com/flaviostutz/npmdata/commit/6e766fbd070db9e79fe354c6984c58631e465356)]
+* no-gitignore and --unmanaged override in runner [[5bf2b3c](https://github.com/flaviostutz/npmdata/commit/5bf2b3cefe2fec9eb05c2ec659a755a1fb84c661)]
+* simplify symlink and content replacement management to be focused only on managed files and avoid performance issues on big target output dirs [[c05e8bc](https://github.com/flaviostutz/npmdata/commit/c05e8bc1c67bc1da682ed6763ace9a1fbc4dae72)]
+
+### Misc
+
+
+### Info
+
+* Authors: Flavio Stutz <flaviostutz@gmail.com>
+
+
 ## 0.10.1 (2026-03-04)
 
 ### Maintenance
