@@ -291,7 +291,7 @@ export type NpmdataExtractEntry = {
   keepExisting?: boolean;
 
   /**
-   * Create/update a .gitignore file alongside each .npmdata marker file (default: false).
+   * Create/update a .gitignore file alongside each .npmdata marker file (default: true).
    */
   gitignore?: boolean;
 

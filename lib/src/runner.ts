@@ -133,6 +133,8 @@ export function printHelp(packageName: string, availableTags: string[]): void {
       '  --output, -o <dir>  Base directory for resolving all outputDir paths (default: cwd)',
       '  --dry-run           Simulate changes without writing or deleting any files',
       '  --tags <tag1,tag2>  Limit to entries whose tags overlap (comma-separated)',
+      '  --no-gitignore      Disable .gitignore management for every entry (overrides per-entry setting)',
+      '  --unmanaged         Run every entry in unmanaged mode (overrides per-entry setting)',
       '  --verbose, -v       Print detailed progress information for each step',
       '',
       `Available tags: ${tagsLine}`,
@@ -195,6 +197,22 @@ export function parseSilentFromArgv(argv: string[]): boolean {
  */
 export function parseVerboseFromArgv(argv: string[]): boolean {
   return argv.includes('--verbose') || argv.includes('-v');
+}
+
+/**
+ * Returns true when --no-gitignore appears in the argv array.
+ * When true, overrides the gitignore setting of every entry to false.
+ */
+export function parseNoGitignoreFromArgv(argv: string[]): boolean {
+  return argv.includes('--no-gitignore');
+}
+
+/**
+ * Returns true when --unmanaged appears in the argv array.
+ * When true, overrides the unmanaged setting of every entry to true.
+ */
+export function parseUnmanagedFromArgv(argv: string[]): boolean {
+  return argv.includes('--unmanaged');
 }
 
 /**
@@ -527,6 +545,8 @@ function runExtract(
   dryRunFromArgv: boolean,
   silentFromArgv: boolean,
   verboseFromArgv: boolean,
+  noGitignoreFromArgv: boolean,
+  unmanagedFromArgv: boolean,
 ): void {
   if (verboseFromArgv) {
     // eslint-disable-next-line no-console
@@ -555,6 +575,8 @@ function runExtract(
       dryRun: entry.dryRun || dryRunFromArgv,
       silent: effectiveSilent,
       verbose: entry.verbose || verboseFromArgv,
+      ...(noGitignoreFromArgv ? { gitignore: false } : {}),
+      ...(unmanagedFromArgv ? { unmanaged: true } : {}),
     };
     if (verboseFromArgv) {
       // eslint-disable-next-line no-console
@@ -808,6 +830,8 @@ export function run(binDir: string, argv: string[] = process.argv): void {
   const dryRunFromArgv = parseDryRunFromArgv(userArgs);
   const silentFromArgv = parseSilentFromArgv(userArgs);
   const verboseFromArgv = parseVerboseFromArgv(userArgs);
+  const noGitignoreFromArgv = parseNoGitignoreFromArgv(userArgs);
+  const unmanagedFromArgv = parseUnmanagedFromArgv(userArgs);
 
   if (verboseFromArgv) {
     // eslint-disable-next-line no-console
@@ -825,6 +849,8 @@ export function run(binDir: string, argv: string[] = process.argv): void {
         dryRunFromArgv,
         silentFromArgv,
         verboseFromArgv,
+        noGitignoreFromArgv,
+        unmanagedFromArgv,
       );
     } else if (action === 'check') {
       runCheck(entries, cliPath, runCwd, verboseFromArgv);

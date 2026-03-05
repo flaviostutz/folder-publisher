@@ -9,6 +9,8 @@ import {
   parseOutputFromArgv,
   parseDryRunFromArgv,
   parseSilentFromArgv,
+  parseNoGitignoreFromArgv,
+  parseUnmanagedFromArgv,
   filterEntriesByTags,
   collectAllTags,
   printHelp,
@@ -803,6 +805,148 @@ describe('runner', () => {
 
     it('returns false for an empty array', () => {
       expect(parseSilentFromArgv([])).toBe(false);
+    });
+  });
+
+  describe('parseNoGitignoreFromArgv', () => {
+    it('returns false when --no-gitignore is not present', () => {
+      expect(parseNoGitignoreFromArgv(['node', 'script.js', 'extract'])).toBe(false);
+    });
+
+    it('returns true when --no-gitignore is present', () => {
+      expect(parseNoGitignoreFromArgv(['node', 'script.js', 'extract', '--no-gitignore'])).toBe(
+        true,
+      );
+    });
+
+    it('returns false for an empty array', () => {
+      expect(parseNoGitignoreFromArgv([])).toBe(false);
+    });
+
+    it('returns false when only similar-but-different flags are present', () => {
+      expect(parseNoGitignoreFromArgv(['node', 'script.js', '--dry-run'])).toBe(false);
+    });
+  });
+
+  describe('parseUnmanagedFromArgv', () => {
+    it('returns false when --unmanaged is not present', () => {
+      expect(parseUnmanagedFromArgv(['node', 'script.js', 'extract'])).toBe(false);
+    });
+
+    it('returns true when --unmanaged is present', () => {
+      expect(parseUnmanagedFromArgv(['node', 'script.js', 'extract', '--unmanaged'])).toBe(true);
+    });
+
+    it('returns false for an empty array', () => {
+      expect(parseUnmanagedFromArgv([])).toBe(false);
+    });
+
+    it('returns false when only similar-but-different flags are present', () => {
+      expect(parseUnmanagedFromArgv(['node', 'script.js', '--dry-run'])).toBe(false);
+    });
+  });
+
+  describe('run – --unmanaged argv override', () => {
+    it('adds --unmanaged to the extract command when the flag is in argv', () => {
+      setupPackageJson({
+        name: 'my-pkg',
+        npmdata: [{ package: 'my-pkg', outputDir: '.' }],
+      });
+
+      run(BIN_DIR, ['node', 'script.js', 'extract', '--unmanaged']);
+
+      expect(capturedCommand()).toContain(' --unmanaged');
+    });
+
+    it('overrides entry-level unmanaged:false and adds --unmanaged to the command', () => {
+      setupPackageJson({
+        name: 'my-pkg',
+        npmdata: [{ package: 'my-pkg', outputDir: '.', unmanaged: false }],
+      });
+
+      run(BIN_DIR, ['node', 'script.js', 'extract', '--unmanaged']);
+
+      expect(capturedCommand()).toContain(' --unmanaged');
+    });
+
+    it('does not add --unmanaged when the flag is absent', () => {
+      setupPackageJson({
+        name: 'my-pkg',
+        npmdata: [{ package: 'my-pkg', outputDir: '.' }],
+      });
+
+      run(BIN_DIR, EXTRACT_ARGV);
+
+      expect(capturedCommand()).not.toContain('--unmanaged');
+    });
+
+    it('applies --unmanaged override across all entries', () => {
+      setupPackageJson({
+        name: 'my-pkg',
+        npmdata: [
+          { package: 'pkg-a', outputDir: './a' },
+          { package: 'pkg-b', outputDir: './b', unmanaged: false },
+        ],
+      });
+
+      run(BIN_DIR, ['node', 'script.js', 'extract', '--unmanaged']);
+
+      const cmds = capturedCommands();
+      expect(cmds).toHaveLength(2);
+      expect(cmds[0]).toContain(' --unmanaged');
+      expect(cmds[1]).toContain(' --unmanaged');
+    });
+  });
+
+  describe('run – --no-gitignore argv override', () => {
+    it('adds --no-gitignore to the extract command when the flag is in argv', () => {
+      setupPackageJson({
+        name: 'my-pkg',
+        npmdata: [{ package: 'my-pkg', outputDir: '.' }],
+      });
+
+      run(BIN_DIR, ['node', 'script.js', 'extract', '--no-gitignore']);
+
+      expect(capturedCommand()).toContain(' --no-gitignore');
+    });
+
+    it('overrides entry-level gitignore:true and adds --no-gitignore to the command', () => {
+      setupPackageJson({
+        name: 'my-pkg',
+        npmdata: [{ package: 'my-pkg', outputDir: '.', gitignore: true }],
+      });
+
+      run(BIN_DIR, ['node', 'script.js', 'extract', '--no-gitignore']);
+
+      expect(capturedCommand()).toContain(' --no-gitignore');
+    });
+
+    it('does not add --no-gitignore when the flag is absent', () => {
+      setupPackageJson({
+        name: 'my-pkg',
+        npmdata: [{ package: 'my-pkg', outputDir: '.' }],
+      });
+
+      run(BIN_DIR, EXTRACT_ARGV);
+
+      expect(capturedCommand()).not.toContain('--no-gitignore');
+    });
+
+    it('applies --no-gitignore override across all entries', () => {
+      setupPackageJson({
+        name: 'my-pkg',
+        npmdata: [
+          { package: 'pkg-a', outputDir: './a', gitignore: true },
+          { package: 'pkg-b', outputDir: './b' },
+        ],
+      });
+
+      run(BIN_DIR, ['node', 'script.js', 'extract', '--no-gitignore']);
+
+      const cmds = capturedCommands();
+      expect(cmds).toHaveLength(2);
+      expect(cmds[0]).toContain(' --no-gitignore');
+      expect(cmds[1]).toContain(' --no-gitignore');
     });
   });
 

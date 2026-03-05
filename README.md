@@ -162,6 +162,30 @@ To use tags, add a `tags` array to each `npmdata` entry in the data package's `p
 
 Check the /examples folder to see this in action
 
+### Data package CLI options
+
+When calling the bin script bundled in a data package, the following options are accepted. Options that overlap with per-entry settings override every entry globally, regardless of what is set in `package.json`.
+
+| Option | Description |
+|---|---|
+| `--output, -o <dir>` | Base directory for resolving all `outputDir` paths (default: cwd). |
+| `--tags <tag1,tag2>` | Limit to entries whose `tags` overlap with the given list (comma-separated). |
+| `--no-gitignore` | Disable `.gitignore` management for every entry, overriding each entry's `gitignore` field. |
+| `--unmanaged` | Run every entry in unmanaged mode, overriding each entry's `unmanaged` field. Files are written without a `.npmdata` marker, without `.gitignore` updates, and without being made read-only. |
+| `--dry-run` | Simulate changes without writing or deleting any files. |
+| `--verbose, -v` | Print detailed progress information for each step. |
+
+```sh
+# disable gitignore management across all entries
+npx my-shared-assets --no-gitignore
+
+# write all files as unmanaged (editable, not tracked)
+npx my-shared-assets --unmanaged
+
+# combine overrides
+npx my-shared-assets --no-gitignore --unmanaged --dry-run
+```
+
 ### npmdata entry options reference
 
 Each entry in the `npmdata` array in `package.json` supports the following options:
@@ -174,7 +198,7 @@ Each entry in the `npmdata` array in `package.json` supports the following optio
 | `contentRegexes` | `string[]` | none | Regex patterns (as strings) to filter files by content. Only files matching at least one pattern are extracted. |
 | `force` | `boolean` | `false` | Allow overwriting existing unmanaged files or files owned by a different package. |
 | `keepExisting` | `boolean` | `false` | Skip files that already exist but create them when absent. Cannot be combined with `force`. |
-| `gitignore` | `boolean` | `false` | Create/update a `.gitignore` file alongside each `.npmdata` marker file. Note: the CLI enables gitignore by default; this field controls the value when embedded in `package.json`. |
+| `gitignore` | `boolean` | `true` | Create/update a `.gitignore` file alongside each `.npmdata` marker file. Set to `false` to disable. |
 | `unmanaged` | `boolean` | `false` | Write files without a `.npmdata` marker, `.gitignore` update, or read-only flag. Existing files are skipped. |
 | `dryRun` | `boolean` | `false` | Simulate extraction without writing anything to disk. |
 | `upgrade` | `boolean` | `false` | Force a fresh install of the package even when a satisfying version is already installed. |
