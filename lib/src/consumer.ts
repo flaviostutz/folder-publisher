@@ -578,18 +578,21 @@ async function extractFiles(
       }
     }
 
-    // Delete files that were managed by this package but are no longer in the package
-    for (const [relPath, owner] of existingManagedMap) {
-      if (owner.packageName !== packageName) continue;
+    // Delete files that were managed by this package but are no longer in the package.
+    // Skip this step in unmanaged mode — only extraction is wanted, no sync/deletion.
+    if (!config.unmanaged) {
+      for (const [relPath, owner] of existingManagedMap) {
+        if (owner.packageName !== packageName) continue;
 
-      const stillPresent = extractedFiles.some((m) => m.path === relPath);
+        const stillPresent = extractedFiles.some((m) => m.path === relPath);
 
-      if (!stillPresent) {
-        const fullPath = path.join(config.outputDir, relPath);
-        if (fs.existsSync(fullPath)) {
-          if (!dryRun) removeFile(fullPath);
-          changes.deleted.push(relPath);
-          emit?.({ type: 'file-deleted', packageName, file: relPath });
+        if (!stillPresent) {
+          const fullPath = path.join(config.outputDir, relPath);
+          if (fs.existsSync(fullPath)) {
+            if (!dryRun) removeFile(fullPath);
+            changes.deleted.push(relPath);
+            emit?.({ type: 'file-deleted', packageName, file: relPath });
+          }
         }
       }
     }

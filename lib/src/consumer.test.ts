@@ -189,6 +189,36 @@ describe('Consumer', () => {
       expect(fs.existsSync(path.join(outputDir, '.gitignore'))).toBe(false);
     });
 
+    it('should not delete existing files when unmanaged is true', async () => {
+      const outputDir = path.join(tmpDir, 'output');
+      fs.mkdirSync(outputDir, { recursive: true });
+
+      // Pre-existing file that is not in the package - should survive unmanaged extraction
+      const extraFile = path.join(outputDir, 'extra.md');
+      fs.writeFileSync(extraFile, 'user file');
+
+      await installMockPackage(
+        'test-unmanaged-no-delete-package',
+        { 'data.json': '{"v":1}' },
+        tmpDir,
+      );
+
+      const result = await extract({
+        packages: ['test-unmanaged-no-delete-package'],
+        outputDir,
+        packageManager: 'pnpm',
+        cwd: tmpDir,
+        unmanaged: true,
+        filenamePatterns: ['**'],
+      });
+
+      // The package file should be extracted
+      expect(fs.existsSync(path.join(outputDir, 'data.json'))).toBe(true);
+      // The unrelated pre-existing file must NOT be deleted
+      expect(fs.existsSync(extraFile)).toBe(true);
+      expect(result.deleted).toHaveLength(0);
+    });
+
     it('should update managed files on second extraction of the same package', async () => {
       const outputDir = path.join(tmpDir, 'output');
 
