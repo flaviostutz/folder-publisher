@@ -96,6 +96,7 @@ Or write a standalone `.npmdatarc` (JSON object at the top level):
 Then run any command without `--packages`:
 
 ```sh
+npx npmdata           # same as 'npx npmdata extract'
 npx npmdata extract   # reads config, extracts all entries
 npx npmdata check     # checks all entries
 npx npmdata purge     # purges all entries
