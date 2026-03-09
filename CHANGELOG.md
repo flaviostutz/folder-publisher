@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.13.0 (2026-03-09)
+
+### Features
+
+* complete refactoring to hierarchical dependency extraction [[5cd8549](https://github.com/flaviostutz/npmdata/commit/5cd85495dcb130a924933a747afa64f7663fa6a1)]
+
+### Maintenance
+
+* release: 0.12.0 [[a92279b](https://github.com/flaviostutz/npmdata/commit/a92279b028ff91e3c22a4023fd14f997468e5eae)]
+* changelog removal from pre [[a5fdc82](https://github.com/flaviostutz/npmdata/commit/a5fdc82aeccb51ed1b4181e9efbc8979ef24f812)]
+* delete leftovers [[34bc8a1](https://github.com/flaviostutz/npmdata/commit/34bc8a14774c4ec391755b2304542a66b509c91c)]
+* fix bin shim and entry point logics [[6e9cfde](https://github.com/flaviostutz/npmdata/commit/6e9cfdeecfce76d2a52da430a546221613ea6995)]
+
+### Misc
+
+
+### Info
+
+* Authors: Flavio Stutz <flaviostutz@gmail.com>
+
+
 ## 0.12.0 (2026-03-06)
 
 ### Features
