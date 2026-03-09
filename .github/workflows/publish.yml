@@ -18,4 +18,5 @@ jobs:
       - run: make build
       - run: make lint
       - run: make test
+      - run: git reset --hard HEAD
       - run: make publish
