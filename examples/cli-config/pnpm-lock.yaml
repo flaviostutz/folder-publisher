@@ -352,12 +352,12 @@ packages:
     resolution: {integrity: sha512-OWND8ei3VtNC9h7V60qff3SVobHr996CTwgxubgyQYEpg290h9J0buyECNNJexkFm5sOajh5G116RYA1c8ZMSw==}
 
   npmdata@file:../../lib/dist/npmdata-0.0.1.tgz:
-    resolution: {integrity: sha512-MLv6BAFbaLYJ/czwEA1QdODCfr2pAgCN+P+iHo5eA6rFwshXGRxU++IzzEbUmbcIZlP6AWPbebP88y5fTDbZow==, tarball: file:../../lib/dist/npmdata-0.0.1.tgz}
+    resolution: {integrity: sha512-/fYoLuKK658OLAfbIWeSXO+zEibhTstupxJHRRBu9OA6oF3Zn1yDqu6ohaNVP6TPfRZfaFrxLmjnfbvvN2LQ9Q==, tarball: file:../../lib/dist/npmdata-0.0.1.tgz}
     version: 0.0.1
     hasBin: true
 
   npmdata@file:../lib/dist/npmdata-0.0.1.tgz:
-    resolution: {integrity: sha512-MLv6BAFbaLYJ/czwEA1QdODCfr2pAgCN+P+iHo5eA6rFwshXGRxU++IzzEbUmbcIZlP6AWPbebP88y5fTDbZow==, tarball: file:../lib/dist/npmdata-0.0.1.tgz}
+    resolution: {integrity: sha512-/fYoLuKK658OLAfbIWeSXO+zEibhTstupxJHRRBu9OA6oF3Zn1yDqu6ohaNVP6TPfRZfaFrxLmjnfbvvN2LQ9Q==, tarball: file:../lib/dist/npmdata-0.0.1.tgz}
     version: 0.0.1
     hasBin: true
 
