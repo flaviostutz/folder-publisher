@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.13.4 (2026-03-10)
+
+### Maintenance
+
+* release: 0.13.3 [[9dc2764](https://github.com/flaviostutz/npmdata/commit/9dc2764ccb44f4874c79167de1070ac551ead2ac)]
+* fixing errors when using npx for data packages [[b119b54](https://github.com/flaviostutz/npmdata/commit/b119b547f91a3c584884488d1d0591cc64b162d3)]
+* gitignore pnpm locks [[7ac9924](https://github.com/flaviostutz/npmdata/commit/7ac992437d08428af8311889cd1982418b926e16)]
+
+### Misc
+
+
+### Info
+
+* Authors: Flavio Stutz <flaviostutz@gmail.com>
+
+
 ## 0.13.3 (2026-03-09)
 
 ### Maintenance
