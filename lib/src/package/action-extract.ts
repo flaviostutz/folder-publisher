@@ -10,7 +10,12 @@ import {
   SelectorConfig,
   OutputConfig,
 } from '../types';
-import { parsePackageSpec, installOrUpgradePackage, getInstalledIfSatisfies } from '../utils';
+import {
+  parsePackageSpec,
+  installOrUpgradePackage,
+  getInstalledIfSatisfies,
+  cleanupTempPackageJson,
+} from '../utils';
 import { diff } from '../fileset/diff';
 import { execute, rollback, deleteFiles } from '../fileset/execute';
 import { readOutputDirMarker } from '../fileset/markers';
@@ -90,7 +95,7 @@ export async function actionExtract(options: ExtractOptions): Promise<ExtractRes
       const upgrade = selector.upgrade ?? false;
       const alreadyCached =
         !upgrade && getInstalledIfSatisfies(pkg.name, pkg.version, cwd) !== null;
-      const pkgPath = await installOrUpgradePackage(pkg.name, pkg.version, upgrade, cwd);
+      const pkgPath = await installOrUpgradePackage(pkg.name, pkg.version, upgrade, cwd, verbose);
 
       if (verbose) {
         let action = 'installed';
@@ -264,6 +269,9 @@ export async function actionExtract(options: ExtractOptions): Promise<ExtractRes
     // Deferred deletions: delete after all filesets have been processed
     await deleteFiles(deferredDeletes);
     result.deleted += deferredDeletes.length;
+
+    // cleanup temp package.json and node_module if was created just for this extraction
+    cleanupTempPackageJson(cwd, verbose);
   } catch (error) {
     // Partial rollback: delete only newly created files
     await rollback(allNewlyCreated);

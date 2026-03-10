@@ -1,3 +1,4 @@
+/* eslint-disable no-undefined */
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -16,10 +17,9 @@ import { NpmdataExtractEntry, PackageConfig } from './types';
 export function parsePackageSpec(spec: string): PackageConfig {
   const atIdx = spec.lastIndexOf('@');
   if (atIdx > 0) {
-    // eslint-disable-next-line no-undefined
     return { name: spec.slice(0, atIdx), version: spec.slice(atIdx + 1) || undefined };
   }
-  // eslint-disable-next-line no-undefined
+
   return { name: spec, version: undefined };
 }
 
@@ -129,6 +129,7 @@ export async function installOrUpgradePackage(
   version: string | undefined,
   upgrade: boolean,
   cwd?: string,
+  verbose?: boolean,
 ): Promise<string> {
   const workDir = cwd ?? process.cwd();
   const spec = version ? `${name}@${version}` : `${name}@latest`;
@@ -142,27 +143,10 @@ export async function installOrUpgradePackage(
   }
 
   // Ensure a package.json exists so the package manager can operate
+  // this happens when npmdata is used as npx without a package.json in the current directory, for example
   const pkgJsonPath = path.join(workDir, 'package.json');
   if (!fs.existsSync(pkgJsonPath)) {
-    // create minimal package.json
-    fs.writeFileSync(
-      pkgJsonPath,
-      // eslint-disable-next-line no-undefined
-      JSON.stringify({ name: 'npmdata-tmp', version: '1.0.0', private: true }, undefined, 2),
-    );
-
-    // Ensure node_modules is ignored in .gitignore
-    const gitignorePath = path.join(workDir, '.gitignore');
-    const gitignoreEntry = 'node_modules';
-    if (fs.existsSync(gitignorePath)) {
-      const existing = fs.readFileSync(gitignorePath, 'utf8');
-      const lines = existing.split('\n').map((l) => l.trim());
-      if (!lines.includes(gitignoreEntry)) {
-        fs.appendFileSync(gitignorePath, `\n${gitignoreEntry}\n`);
-      }
-    } else {
-      fs.writeFileSync(gitignorePath, `${gitignoreEntry}\n`);
-    }
+    initTempPackageJson(workDir, verbose);
 
     // reinstall itself to ensure it's present in node_modules for later use (e.g. to access its own package.json)
     // this might happen if using npx, for example, which runs the package without installing it in the local node_modules
@@ -176,7 +160,11 @@ export async function installOrUpgradePackage(
   }
 
   // install or upgrade the requested package
-  await runPackageManagerCommand(spec, upgrade ? 'upgrade' : 'add', workDir);
+  // make sure it's in package.json dependencies (needed before "upgrade")
+  await runPackageManagerCommand(spec, 'add', workDir);
+  if (upgrade) {
+    await runPackageManagerCommand(spec, 'upgrade', workDir);
+  }
 
   const pkgPath = path.join(workDir, 'node_modules', name);
   if (!fs.existsSync(pkgPath)) {
@@ -224,4 +212,72 @@ export function filterEntriesByPresets(
     const entryPresets = new Set([...(entry.presets ?? []), ...(entry.selector?.presets ?? [])]);
     return presets.some((p) => entryPresets.has(p));
   });
+}
+
+/**
+ * Initialise a minimal package.json and ensure node_modules is listed in .gitignore
+ * for the given working directory.
+ */
+export function initTempPackageJson(workDir: string, verbose?: boolean): void {
+  const pkgJsonPath = path.join(workDir, 'package.json');
+  if (verbose) {
+    // eslint-disable-next-line no-console
+    console.log(
+      `[verbose] extract: creating temporary package.json at ${pkgJsonPath} for this extraction`,
+    );
+  }
+
+  fs.writeFileSync(
+    pkgJsonPath,
+    JSON.stringify({ name: 'npmdata-tmp', version: '99.99.99', private: true }, undefined, 2),
+  );
+
+  // Ensure node_modules is ignored in .gitignore
+  const gitignorePath = path.join(workDir, '.gitignore');
+  const gitignoreEntry = 'node_modules';
+  if (fs.existsSync(gitignorePath)) {
+    const existing = fs.readFileSync(gitignorePath, 'utf8');
+    const lines = existing.split('\n').map((l) => l.trim());
+    if (!lines.includes(gitignoreEntry)) {
+      fs.appendFileSync(gitignorePath, `\n${gitignoreEntry}\n`);
+    }
+  } else {
+    fs.writeFileSync(gitignorePath, `${gitignoreEntry}\n`);
+  }
+}
+
+export function cleanupTempPackageJson(cwd: string, verbose?: boolean): void {
+  const tempPkgJsonPath = path.join(cwd, 'package.json');
+  if (!fs.existsSync(tempPkgJsonPath)) return;
+
+  // verify if this package.json was created by us (npmdata) by checking its name and version
+  const tempPkgJsonContent = JSON.parse(fs.readFileSync(tempPkgJsonPath).toString()) as {
+    name: string;
+    version: string;
+  };
+  if (tempPkgJsonContent.name !== 'npmdata-tmp' || tempPkgJsonContent.version !== '99.99.99')
+    return;
+
+  if (verbose) {
+    // eslint-disable-next-line no-console
+    console.log(
+      `[verbose] extract: removing temporary package.json and node_modules at ${tempPkgJsonPath} created for this extraction`,
+    );
+  }
+  // remove package.json
+  fs.unlinkSync(tempPkgJsonPath);
+  // remove node_modules
+  const tempNodeModulesPath = path.join(cwd, 'node_modules');
+  if (fs.existsSync(tempNodeModulesPath)) {
+    fs.rmSync(tempNodeModulesPath, { recursive: true, force: true });
+  }
+  // cleanup .gitignore if it only contains node_modules (optional, can be left as is)
+  const gitignorePath = path.join(cwd, '.gitignore');
+  if (fs.existsSync(gitignorePath)) {
+    const existing = fs.readFileSync(gitignorePath, 'utf8');
+    const lines = existing.split('\n').map((l) => l.trim());
+    if (lines.length === 1 && lines[0] === 'node_modules') {
+      fs.unlinkSync(gitignorePath);
+    }
+  }
 }

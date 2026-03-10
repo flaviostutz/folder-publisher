@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-empty-function */
 /* eslint-disable no-undefined */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -15,6 +16,8 @@ import {
   getInstalledPackagePath,
   getInstalledIfSatisfies,
   installOrUpgradePackage,
+  initTempPackageJson,
+  cleanupTempPackageJson,
 } from './utils';
 
 describe('parsePackageSpec', () => {
@@ -400,14 +403,14 @@ describe('installPackage', () => {
           fs.readFileSync(path.join(tmpDir, 'package.json')).toString(),
         ) as Record<string, unknown>;
         expect(pkgJson.name).toBe('npmdata-tmp');
-        expect(pkgJson.version).toBe('1.0.0');
+        expect(pkgJson.version).toBe('99.99.99');
         expect(pkgJson.private).toBe(true);
       } finally {
         spy.mockRestore();
       }
     });
 
-    it('makes two execSync calls: self-install first, then the target package', async () => {
+    it('makes three execSync calls: self-install first, then add and upgrade the target package', async () => {
       const calls: string[] = [];
       const spy = jest.spyOn(childProcess, 'execSync').mockImplementation((cmd) => {
         calls.push(cmd as string);
@@ -415,11 +418,13 @@ describe('installPackage', () => {
       });
       try {
         await expect(installOrUpgradePackage('some-pkg', '1.0.0', true, tmpDir)).rejects.toThrow();
-        expect(calls).toHaveLength(2);
+        expect(calls).toHaveLength(3);
         // First call: self-install (should contain the npmdata package name, not the target)
         expect(calls[0]).not.toContain('some-pkg');
-        // Second call: main install of the target package
+        // Second call: add of the target package
         expect(calls[1]).toContain('some-pkg');
+        // Third call: upgrade of the target package
+        expect(calls[2]).toContain('some-pkg');
       } finally {
         spy.mockRestore();
       }
@@ -440,7 +445,7 @@ describe('installPackage', () => {
       }
     });
 
-    it('only one execSync call when package.json already exists', async () => {
+    it('makes two execSync calls (add + upgrade) when package.json already exists', async () => {
       fs.writeFileSync(
         path.join(tmpDir, 'package.json'),
         JSON.stringify({ name: 'existing', version: '1.0.0', private: true }),
@@ -452,8 +457,9 @@ describe('installPackage', () => {
       });
       try {
         await expect(installOrUpgradePackage('some-pkg', '1.0.0', true, tmpDir)).rejects.toThrow();
-        expect(calls).toHaveLength(1);
+        expect(calls).toHaveLength(2);
         expect(calls[0]).toContain('some-pkg');
+        expect(calls[1]).toContain('some-pkg');
       } finally {
         spy.mockRestore();
       }
@@ -479,5 +485,168 @@ describe('installPackage', () => {
         spy.mockRestore();
       }
     });
+  });
+});
+
+describe('initTempPackageJson', () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'v2-inittmp-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('creates package.json with the expected npmdata-tmp structure', () => {
+    initTempPackageJson(tmpDir);
+    const pkgJsonPath = path.join(tmpDir, 'package.json');
+    expect(fs.existsSync(pkgJsonPath)).toBe(true);
+    const content = JSON.parse(fs.readFileSync(pkgJsonPath).toString()) as Record<string, unknown>;
+    expect(content.name).toBe('npmdata-tmp');
+    expect(content.version).toBe('99.99.99');
+    expect(content.private).toBe(true);
+  });
+
+  it('creates .gitignore with node_modules when no .gitignore exists', () => {
+    initTempPackageJson(tmpDir);
+    const gitignorePath = path.join(tmpDir, '.gitignore');
+    expect(fs.existsSync(gitignorePath)).toBe(true);
+    expect(fs.readFileSync(gitignorePath, 'utf8')).toContain('node_modules');
+  });
+
+  it('appends node_modules to an existing .gitignore that does not have it', () => {
+    const gitignorePath = path.join(tmpDir, '.gitignore');
+    fs.writeFileSync(gitignorePath, 'dist\n');
+    initTempPackageJson(tmpDir);
+    const content = fs.readFileSync(gitignorePath, 'utf8');
+    expect(content).toContain('dist');
+    expect(content).toContain('node_modules');
+  });
+
+  it('does not duplicate node_modules in an existing .gitignore', () => {
+    const gitignorePath = path.join(tmpDir, '.gitignore');
+    fs.writeFileSync(gitignorePath, 'node_modules\n');
+    initTempPackageJson(tmpDir);
+    const content = fs.readFileSync(gitignorePath, 'utf8');
+    const occurrences = content.split('node_modules').length - 1;
+    expect(occurrences).toBe(1);
+  });
+
+  it('logs a verbose message when verbose is true', () => {
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      initTempPackageJson(tmpDir, true);
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('[verbose]'));
+    } finally {
+      consoleSpy.mockRestore();
+    }
+  });
+
+  it('does not log anything when verbose is false', () => {
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      initTempPackageJson(tmpDir, false);
+      expect(consoleSpy).not.toHaveBeenCalled();
+    } finally {
+      consoleSpy.mockRestore();
+    }
+  });
+});
+
+describe('cleanupTempPackageJson', () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'v2-cleanup-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  const writeTempPkgJson = (dir: string): void => {
+    fs.writeFileSync(
+      path.join(dir, 'package.json'),
+      JSON.stringify({ name: 'npmdata-tmp', version: '99.99.99', private: true }, undefined, 2),
+    );
+  };
+
+  it('does nothing when package.json does not exist', () => {
+    expect(() => cleanupTempPackageJson(tmpDir, false)).not.toThrow();
+  });
+
+  it('does nothing when package.json was not created by npmdata (wrong name)', () => {
+    fs.writeFileSync(
+      path.join(tmpDir, 'package.json'),
+      JSON.stringify({ name: 'my-real-project', version: '99.99.99', private: true }),
+    );
+    cleanupTempPackageJson(tmpDir);
+    expect(fs.existsSync(path.join(tmpDir, 'package.json'))).toBe(true);
+  });
+
+  it('does nothing when package.json was not created by npmdata (wrong version)', () => {
+    fs.writeFileSync(
+      path.join(tmpDir, 'package.json'),
+      JSON.stringify({ name: 'npmdata-tmp', version: '1.0.0', private: true }),
+    );
+    cleanupTempPackageJson(tmpDir);
+    expect(fs.existsSync(path.join(tmpDir, 'package.json'))).toBe(true);
+  });
+
+  it('removes package.json when it is the temp one', () => {
+    writeTempPkgJson(tmpDir);
+    cleanupTempPackageJson(tmpDir);
+    expect(fs.existsSync(path.join(tmpDir, 'package.json'))).toBe(false);
+  });
+
+  it('removes node_modules directory when present', () => {
+    writeTempPkgJson(tmpDir);
+    const nodeModulesPath = path.join(tmpDir, 'node_modules', 'some-pkg');
+    fs.mkdirSync(nodeModulesPath, { recursive: true });
+    cleanupTempPackageJson(tmpDir);
+    expect(fs.existsSync(path.join(tmpDir, 'node_modules'))).toBe(false);
+  });
+
+  it('does not throw when node_modules does not exist', () => {
+    writeTempPkgJson(tmpDir);
+    expect(() => cleanupTempPackageJson(tmpDir)).not.toThrow();
+  });
+
+  it('removes .gitignore when it contains only node_modules', () => {
+    writeTempPkgJson(tmpDir);
+    fs.writeFileSync(path.join(tmpDir, '.gitignore'), 'node_modules');
+    cleanupTempPackageJson(tmpDir);
+    expect(fs.existsSync(path.join(tmpDir, '.gitignore'))).toBe(false);
+  });
+
+  it('keeps .gitignore when it contains other entries besides node_modules', () => {
+    writeTempPkgJson(tmpDir);
+    fs.writeFileSync(path.join(tmpDir, '.gitignore'), 'dist\nnode_modules\n');
+    cleanupTempPackageJson(tmpDir);
+    expect(fs.existsSync(path.join(tmpDir, '.gitignore'))).toBe(true);
+  });
+
+  it('logs a verbose message when verbose is true', () => {
+    writeTempPkgJson(tmpDir);
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      cleanupTempPackageJson(tmpDir, true);
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('[verbose]'));
+    } finally {
+      consoleSpy.mockRestore();
+    }
+  });
+
+  it('does not log anything when verbose is false', () => {
+    writeTempPkgJson(tmpDir);
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      cleanupTempPackageJson(tmpDir, false);
+      expect(consoleSpy).not.toHaveBeenCalled();
+    } finally {
+      consoleSpy.mockRestore();
+    }
   });
 });
