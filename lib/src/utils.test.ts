@@ -1,6 +1,7 @@
 /* eslint-disable no-undefined */
 import fs from 'node:fs';
 import os from 'node:os';
+import childProcess from 'node:child_process';
 import path from 'node:path';
 
 import {
@@ -9,11 +10,11 @@ import {
   hashBuffer,
   hashFileSync,
   isBinaryFile,
-  detectPackageManager,
   filterEntriesByPresets,
   ensureDir,
   getInstalledPackagePath,
-  installPackage,
+  getInstalledIfSatisfies,
+  installOrUpgradePackage,
 } from './utils';
 
 describe('parsePackageSpec', () => {
@@ -81,64 +82,6 @@ describe('hashFile', () => {
     const hashA = await hashFile(fileA);
     const hashB = await hashFile(fileB);
     expect(hashA).toBe(hashB);
-  });
-});
-
-describe('detectPackageManager', () => {
-  let tmpDir: string;
-
-  beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'v2-pm-detect-'));
-  });
-
-  afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true });
-  });
-
-  it('returns pnpm when pnpm-lock.yaml exists', () => {
-    fs.writeFileSync(path.join(tmpDir, 'pnpm-lock.yaml'), '');
-    expect(detectPackageManager(tmpDir)).toBe('pnpm');
-  });
-
-  it('returns npm when package-lock.json exists', () => {
-    fs.writeFileSync(path.join(tmpDir, 'package-lock.json'), '');
-    expect(detectPackageManager(tmpDir)).toBe('npm');
-  });
-
-  it('returns npm when no lock file exists', () => {
-    const envKey = 'npm_config_user_agent';
-    // eslint-disable-next-line no-process-env
-    const savedUserAgent = process.env[envKey];
-    // eslint-disable-next-line no-process-env
-    delete process.env[envKey];
-    try {
-      expect(detectPackageManager(tmpDir)).toBe('npm');
-    } finally {
-      // eslint-disable-next-line no-process-env
-      if (savedUserAgent !== undefined) process.env[envKey] = savedUserAgent;
-    }
-  });
-
-  it('returns pnpm when both lock files exist (pnpm takes priority)', () => {
-    fs.writeFileSync(path.join(tmpDir, 'pnpm-lock.yaml'), '');
-    fs.writeFileSync(path.join(tmpDir, 'package-lock.json'), '');
-    expect(detectPackageManager(tmpDir)).toBe('pnpm');
-  });
-
-  it('detects pnpm from npm_config_user_agent env var', () => {
-    const envKey = 'npm_config_user_agent';
-    // eslint-disable-next-line no-process-env
-    const saved = process.env[envKey];
-    // eslint-disable-next-line no-process-env
-    process.env[envKey] = 'pnpm/8.0.0 npm/? node/v20.0.0 linux x64';
-    try {
-      expect(detectPackageManager(tmpDir)).toBe('pnpm');
-    } finally {
-      // eslint-disable-next-line no-process-env
-      if (saved !== undefined) process.env[envKey] = saved;
-      // eslint-disable-next-line no-process-env
-      else delete process.env[envKey];
-    }
   });
 });
 
@@ -291,6 +234,48 @@ describe('getInstalledPackagePath', () => {
   });
 });
 
+describe('getInstalledIfSatisfies', () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'v2-satisfies-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('returns null when package is not installed', () => {
+    expect(getInstalledIfSatisfies('missing-pkg', '1.0.0', tmpDir)).toBeNull();
+  });
+
+  describe('integrated – real node_modules', () => {
+    // projectRoot is the lib/ folder where node_modules actually lives
+    const projectRoot = path.resolve(__dirname, '..');
+
+    it('finds semver when the installed version satisfies ^7.0.0', () => {
+      const result = getInstalledIfSatisfies('semver', '^7.0.0', projectRoot);
+      expect(result).toBe(path.join(projectRoot, 'node_modules', 'semver'));
+    });
+
+    it('finds semver with no version constraint', () => {
+      const result = getInstalledIfSatisfies('semver', undefined, projectRoot);
+      expect(result).toBe(path.join(projectRoot, 'node_modules', 'semver'));
+    });
+
+    it('returns null when requesting a version that the installed semver does not satisfy', () => {
+      // semver 7.x is installed; require 6.x should not match
+      const result = getInstalledIfSatisfies('semver', '^6.0.0', projectRoot);
+      expect(result).toBeNull();
+    });
+
+    it('returns null for a package that is not in node_modules at all', () => {
+      const result = getInstalledIfSatisfies('__definitely-not-installed__', '1.0.0', projectRoot);
+      expect(result).toBeNull();
+    });
+  });
+});
+
 describe('installPackage', () => {
   let tmpDir: string;
 
@@ -302,18 +287,55 @@ describe('installPackage', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('returns cached path when package already installed and upgrade is false', () => {
+  it('returns cached path when package already installed and upgrade is false', async () => {
     const pkgDir = path.join(tmpDir, 'node_modules', 'cached-pkg');
     fs.mkdirSync(pkgDir, { recursive: true });
-    fs.writeFileSync(path.join(pkgDir, 'package.json'), '{"name":"cached-pkg"}');
-    const result = installPackage('cached-pkg', '1.0.0', false, tmpDir);
+    fs.writeFileSync(path.join(pkgDir, 'package.json'), '{"name":"cached-pkg","version":"1.0.0"}');
+    const result = await installOrUpgradePackage('cached-pkg', '1.0.0', false, tmpDir);
     expect(result).toBe(pkgDir);
   });
 
-  it('throws an Error with detail when execSync fails', () => {
+  it('throws an Error with detail when execSync fails', async () => {
     // Attempt to install a definitely-nonexistent package so execSync fails
-    expect(() => installPackage('__nonexistent_pkg_xyz_abc__', '0.0.1', true, tmpDir)).toThrow(
-      /Failed to install/,
-    );
+    await expect(
+      installOrUpgradePackage('__nonexistent_pkg_xyz_abc__', '0.0.1', true, tmpDir),
+    ).rejects.toThrow(/Failed to install/);
+  });
+
+  it('throws a clear error when install succeeds but package not found in node_modules', async () => {
+    // Simulate a scenario where execSync ran fine but no node_modules/<pkg> was created.
+    // We spy on execSync to be a no-op (so it "succeeds" without creating anything).
+    const { execSync: realExecSync } =
+      jest.requireActual<typeof import('node:child_process')>('node:child_process');
+    const spy = jest.spyOn(childProcess, 'execSync').mockReturnValueOnce('');
+    try {
+      await expect(installOrUpgradePackage('ghost-pkg', '1.0.0', true, tmpDir)).rejects.toThrow(
+        /was not found.*after installation.*package\.json/i,
+      );
+    } finally {
+      spy.mockRestore();
+      void realExecSync; // suppress unused warning
+    }
+  });
+
+  it('creates package.json when it does not exist before installing', async () => {
+    // No package.json in tmpDir initially
+    expect(fs.existsSync(path.join(tmpDir, 'package.json'))).toBe(false);
+    // Spy captures whether package.json already exists when execSync is called
+    let pkgJsonExistedDuringInstall = false;
+    const spy = jest.spyOn(childProcess, 'execSync').mockImplementationOnce(() => {
+      pkgJsonExistedDuringInstall = fs.existsSync(path.join(tmpDir, 'package.json'));
+      return '';
+    });
+    try {
+      // upgrade=true skips cache; execSync no-op means node_modules/<pkg> won't appear → throws
+      await expect(installOrUpgradePackage('some-pkg', '1.0.0', true, tmpDir)).rejects.toThrow(
+        /was not found.*after installation/i,
+      );
+      expect(pkgJsonExistedDuringInstall).toBe(true);
+      expect(fs.existsSync(path.join(tmpDir, 'package.json'))).toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

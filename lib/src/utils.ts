@@ -3,6 +3,10 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { execSync } from 'node:child_process';
 
+import semver from 'semver';
+import { detect } from 'package-manager-detector/detect';
+import { resolveCommand } from 'package-manager-detector/commands';
+
 import { NpmdataExtractEntry, PackageConfig } from './types';
 
 /**
@@ -65,50 +69,73 @@ export function isBinaryFile(filePath: string): boolean {
 }
 
 /**
- * Detect package manager by inspecting lock files in the given directory.
- * Falls back to npm if no lock file is found.
+ * Return the installed package path if already present and satisfies the requested version.
  */
-export function detectPackageManager(cwd?: string): 'pnpm' | 'npm' {
-  const dir = cwd ?? process.cwd();
-  try {
-    const lockFiles = fs.readdirSync(dir);
-    if (lockFiles.includes('pnpm-lock.yaml')) return 'pnpm';
-    if (lockFiles.includes('package-lock.json')) return 'npm';
-  } catch {
-    // fall through
+export function getInstalledIfSatisfies(
+  name: string,
+  version: string | undefined,
+  workDir: string,
+): string | null {
+  const installedPath = path.join(workDir, 'node_modules', name, 'package.json');
+  if (!fs.existsSync(installedPath)) {
+    // eslint-disable-next-line unicorn/no-null
+    return null;
   }
-
-  // Check npm_config_user_agent environment variable
-  // eslint-disable-next-line no-process-env
-  const userAgent = process.env.npm_config_user_agent ?? '';
-  if (userAgent.includes('pnpm')) return 'pnpm';
-
-  return 'npm';
+  const installedPkg = JSON.parse(fs.readFileSync(installedPath).toString()) as {
+    version?: string;
+  };
+  const installedVersion = installedPkg.version ?? '';
+  if (!version || semver.satisfies(installedVersion, version)) {
+    return path.dirname(installedPath);
+  }
+  // eslint-disable-next-line unicorn/no-null
+  return null;
 }
 
 /**
- * Install a package using the detected package manager.
+ * Install and/or upgrade a package using the detected package manager.
  * Returns the installed package path under node_modules.
+ * If no package.json exists in the working directory, one is initialised automatically.
  */
-export function installPackage(
+export async function installOrUpgradePackage(
   name: string,
   version: string | undefined,
   upgrade: boolean,
   cwd?: string,
-): string {
+): Promise<string> {
   const workDir = cwd ?? process.cwd();
-  const pm = detectPackageManager(workDir);
   const spec = version ? `${name}@${version}` : `${name}@latest`;
 
   // Check if already installed with a satisfying version (skip install if not upgrading)
   if (!upgrade) {
-    const installedPath = path.join(workDir, 'node_modules', name, 'package.json');
-    if (fs.existsSync(installedPath)) {
-      return path.dirname(installedPath);
+    const cached = getInstalledIfSatisfies(name, version, workDir);
+    if (cached) {
+      return cached;
     }
   }
 
-  const cmd = pm === 'pnpm' ? `pnpm add ${spec}` : `npm install ${spec}`;
+  // Ensure a package.json exists so the package manager can operate
+  const pkgJsonPath = path.join(workDir, 'package.json');
+  if (!fs.existsSync(pkgJsonPath)) {
+    fs.writeFileSync(
+      pkgJsonPath,
+      // eslint-disable-next-line no-undefined
+      JSON.stringify({ name: 'npmdata-tmp', version: '1.0.0', private: true }, undefined, 2),
+    );
+  }
+
+  // Detect the package manager used in workDir (falls back to npm)
+  const detected = await detect({ cwd: workDir });
+  const agent = detected?.agent ?? 'npm';
+
+  // Resolve the correct CLI command for 'upgrade' or 'add'
+  const commandType = upgrade ? 'upgrade' : 'add';
+  const resolved = resolveCommand(agent, commandType, [spec]);
+  if (!resolved) {
+    throw new Error(`Could not resolve "${commandType}" command for package manager "${agent}"`);
+  }
+
+  const cmd = `${resolved.command} ${resolved.args.join(' ')}`;
   try {
     execSync(cmd, { cwd: workDir, stdio: 'pipe', encoding: 'utf8' });
   } catch (error: unknown) {
@@ -117,7 +144,14 @@ export function installPackage(
     throw new Error(`Failed to install ${spec}: ${detail}`);
   }
 
-  return path.join(workDir, 'node_modules', name);
+  const pkgPath = path.join(workDir, 'node_modules', name);
+  if (!fs.existsSync(pkgPath)) {
+    throw new Error(
+      `Package "${name}" was not found at "${pkgPath}" after installation. ` +
+        `Ensure you are running from a directory that has a package.json file.`,
+    );
+  }
+  return pkgPath;
 }
 
 /**

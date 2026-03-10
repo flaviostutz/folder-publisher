@@ -8,7 +8,7 @@ install:
 
 build: install
 # 	pnpm exec example-files-package
-	pnpm exec example-files-package extract --files "docs/**/*,conf/**/*" --output output
+# 	pnpm exec example-files-package extract --files "docs/**/*,conf/**/*" --output output
 
 test:
 	# install the data package and extract the data

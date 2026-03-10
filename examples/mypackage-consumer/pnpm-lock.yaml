@@ -202,7 +202,7 @@ packages:
     engines: {node: '>=0.10.0'}
 
   example-files-package@file:../mypackage/dist/example-files-package-1.0.0.tgz:
-    resolution: {integrity: sha512-FXiKa5fS/cZFJ6Dbe0z0HZbea+4HWQtwKWFSqKSZSLgUzWWXtTw9RRVUHJx8MHQfqSt6QAXUBAv0GaqLMtR6KQ==}
+    resolution: {integrity: sha512-FXiKa5fS/cZFJ6Dbe0z0HZbea+4HWQtwKWFSqKSZSLgUzWWXtTw9RRVUHJx8MHQfqSt6QAXUBAv0GaqLMtR6KQ==, tarball: file:../mypackage/dist/example-files-package-1.0.0.tgz}
     version: 1.0.0
     hasBin: true
 
@@ -349,7 +349,7 @@ packages:
     resolution: {integrity: sha512-OWND8ei3VtNC9h7V60qff3SVobHr996CTwgxubgyQYEpg290h9J0buyECNNJexkFm5sOajh5G116RYA1c8ZMSw==}
 
   npmdata@file:../../lib/dist/npmdata-0.0.1.tgz:
-    resolution: {integrity: sha512-sewDuY8TPXgC4jcwbA0KpOPcER3hxfZGyMAU+KFKahqh3sXpI2eimbbmSrwydRL5txlrtc2p+kAZ8WbvifcCWA==}
+    resolution: {integrity: sha512-MLv6BAFbaLYJ/czwEA1QdODCfr2pAgCN+P+iHo5eA6rFwshXGRxU++IzzEbUmbcIZlP6AWPbebP88y5fTDbZow==, tarball: file:../../lib/dist/npmdata-0.0.1.tgz}
     version: 0.0.1
     hasBin: true
 
@@ -367,6 +367,9 @@ packages:
   p-locate@5.0.0:
     resolution: {integrity: sha512-LaNjtRWUBY++zB5nE/NwcaoMylSPk+S+ZHNB1TzdbMJMny6dynpAGt7X/tl/QYq3TIeE6nxHppbo2LGymrG5Pw==}
     engines: {node: '>=10'}
+
+  package-manager-detector@1.6.0:
+    resolution: {integrity: sha512-61A5ThoTiDG/C8s8UMZwSorAGwMJ0ERVGj2OjoW5pAalsNOg15+iQiPzrLJ4jhZ1HJzmC2PIHT2oEiH3R5fzNA==}
 
   parent-module@1.0.1:
     resolution: {integrity: sha512-GQ2EWRpQV8/o+Aw8YqtfZZPfNRWZYkbidE9k5rpl/hC3vtHHBfGm2Ifi6qWV+coDGkrUKZAxE3Lot5kcsRlh+g==}
@@ -819,6 +822,7 @@ snapshots:
       ignore: 7.0.5
       minimatch: 10.2.4
       mypkg: 1.0.0
+      package-manager-detector: 1.6.0
       semver: 7.7.4
     transitivePeerDependencies:
       - typescript
@@ -843,6 +847,8 @@ snapshots:
   p-locate@5.0.0:
     dependencies:
       p-limit: 3.1.0
+
+  package-manager-detector@1.6.0: {}
 
   parent-module@1.0.1:
     dependencies:

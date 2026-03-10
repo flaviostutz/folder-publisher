@@ -10,7 +10,7 @@ import {
   SelectorConfig,
   OutputConfig,
 } from '../types';
-import { parsePackageSpec, installPackage } from '../utils';
+import { parsePackageSpec, installOrUpgradePackage, getInstalledIfSatisfies } from '../utils';
 import { diff } from '../fileset/diff';
 import { execute, rollback, deleteFiles } from '../fileset/execute';
 import { readOutputDirMarker } from '../fileset/markers';
@@ -87,10 +87,16 @@ export async function actionExtract(options: ExtractOptions): Promise<ExtractRes
       }
 
       // Phase 1: Install package
-      const pkgPath = installPackage(pkg.name, pkg.version, selector.upgrade ?? false, cwd);
+      const upgrade = selector.upgrade ?? false;
+      const alreadyCached =
+        !upgrade && getInstalledIfSatisfies(pkg.name, pkg.version, cwd) !== null;
+      const pkgPath = await installOrUpgradePackage(pkg.name, pkg.version, upgrade, cwd);
 
       if (verbose) {
-        console.log(`[verbose] extract: installed package ${pkg.name} at ${pkgPath}`);
+        let action = 'installed';
+        if (alreadyCached) action = 'using cached';
+        else if (upgrade) action = 'upgraded';
+        console.log(`[verbose] extract: ${action} package ${pkg.name} at ${pkgPath}`);
       }
 
       // Get installed version
