@@ -304,27 +304,27 @@ describe('installPackage', () => {
 
   it('throws a clear error when install succeeds but package not found in node_modules', async () => {
     // Simulate a scenario where execSync ran fine but no node_modules/<pkg> was created.
-    // We spy on execSync to be a no-op (so it "succeeds" without creating anything).
-    const { execSync: realExecSync } =
-      jest.requireActual<typeof import('node:child_process')>('node:child_process');
-    const spy = jest.spyOn(childProcess, 'execSync').mockReturnValueOnce('');
+    // We spy on execSync to be a no-op for all calls (self-install + main install).
+    const spy = jest.spyOn(childProcess, 'execSync').mockReturnValue('');
     try {
       await expect(installOrUpgradePackage('ghost-pkg', '1.0.0', true, tmpDir)).rejects.toThrow(
         /was not found.*after installation.*package\.json/i,
       );
     } finally {
       spy.mockRestore();
-      void realExecSync; // suppress unused warning
     }
   });
 
   it('creates package.json when it does not exist before installing', async () => {
     // No package.json in tmpDir initially
     expect(fs.existsSync(path.join(tmpDir, 'package.json'))).toBe(false);
-    // Spy captures whether package.json already exists when execSync is called
+    // Spy captures whether package.json already exists when execSync is first called (self-install).
+    // A second call is made for the main package install – both are no-ops.
     let pkgJsonExistedDuringInstall = false;
-    const spy = jest.spyOn(childProcess, 'execSync').mockImplementationOnce(() => {
-      pkgJsonExistedDuringInstall = fs.existsSync(path.join(tmpDir, 'package.json'));
+    const spy = jest.spyOn(childProcess, 'execSync').mockImplementation(() => {
+      if (!pkgJsonExistedDuringInstall) {
+        pkgJsonExistedDuringInstall = fs.existsSync(path.join(tmpDir, 'package.json'));
+      }
       return '';
     });
     try {
@@ -337,5 +337,147 @@ describe('installPackage', () => {
     } finally {
       spy.mockRestore();
     }
+  });
+
+  it('creates .gitignore with node_modules when package.json is auto-created and no .gitignore exists', async () => {
+    const spy = jest.spyOn(childProcess, 'execSync').mockReturnValue('');
+    try {
+      await expect(installOrUpgradePackage('some-pkg', '1.0.0', true, tmpDir)).rejects.toThrow();
+      const gitignorePath = path.join(tmpDir, '.gitignore');
+      expect(fs.existsSync(gitignorePath)).toBe(true);
+      expect(fs.readFileSync(gitignorePath, 'utf8')).toContain('node_modules');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('appends node_modules to existing .gitignore when not already present', async () => {
+    fs.writeFileSync(path.join(tmpDir, '.gitignore'), 'dist\n');
+    const spy = jest.spyOn(childProcess, 'execSync').mockReturnValue('');
+    try {
+      await expect(installOrUpgradePackage('some-pkg', '1.0.0', true, tmpDir)).rejects.toThrow();
+      const content = fs.readFileSync(path.join(tmpDir, '.gitignore'), 'utf8');
+      expect(content).toContain('dist');
+      expect(content).toContain('node_modules');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('does not duplicate node_modules in .gitignore when already present', async () => {
+    fs.writeFileSync(path.join(tmpDir, '.gitignore'), 'node_modules\n');
+    const spy = jest.spyOn(childProcess, 'execSync').mockReturnValue('');
+    try {
+      await expect(installOrUpgradePackage('some-pkg', '1.0.0', true, tmpDir)).rejects.toThrow();
+      const content = fs.readFileSync(path.join(tmpDir, '.gitignore'), 'utf8');
+      const occurrences = content.split('node_modules').length - 1;
+      expect(occurrences).toBe(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('does not create .gitignore when package.json already exists', async () => {
+    fs.writeFileSync(
+      path.join(tmpDir, 'package.json'),
+      JSON.stringify({ name: 'existing', version: '1.0.0', private: true }),
+    );
+    const spy = jest.spyOn(childProcess, 'execSync').mockImplementationOnce(() => '');
+    try {
+      await expect(installOrUpgradePackage('some-pkg', '1.0.0', true, tmpDir)).rejects.toThrow();
+      expect(fs.existsSync(path.join(tmpDir, '.gitignore'))).toBe(false);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  describe('new project setup (no package.json)', () => {
+    it('auto-created package.json has expected content', async () => {
+      const spy = jest.spyOn(childProcess, 'execSync').mockReturnValue('');
+      try {
+        await expect(installOrUpgradePackage('some-pkg', '1.0.0', true, tmpDir)).rejects.toThrow();
+        const pkgJson = JSON.parse(
+          fs.readFileSync(path.join(tmpDir, 'package.json')).toString(),
+        ) as Record<string, unknown>;
+        expect(pkgJson.name).toBe('npmdata-tmp');
+        expect(pkgJson.version).toBe('1.0.0');
+        expect(pkgJson.private).toBe(true);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it('makes two execSync calls: self-install first, then the target package', async () => {
+      const calls: string[] = [];
+      const spy = jest.spyOn(childProcess, 'execSync').mockImplementation((cmd) => {
+        calls.push(cmd as string);
+        return '';
+      });
+      try {
+        await expect(installOrUpgradePackage('some-pkg', '1.0.0', true, tmpDir)).rejects.toThrow();
+        expect(calls).toHaveLength(2);
+        // First call: self-install (should contain the npmdata package name, not the target)
+        expect(calls[0]).not.toContain('some-pkg');
+        // Second call: main install of the target package
+        expect(calls[1]).toContain('some-pkg');
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it('self-install uses add (not upgrade) command', async () => {
+      const calls: string[] = [];
+      const spy = jest.spyOn(childProcess, 'execSync').mockImplementation((cmd) => {
+        calls.push(cmd as string);
+        return '';
+      });
+      try {
+        await expect(installOrUpgradePackage('some-pkg', '1.0.0', true, tmpDir)).rejects.toThrow();
+        // npm 'add' resolves to 'npm i' (install alias); upgrade resolves to 'npm update'
+        expect(calls[0]).not.toMatch(/update/i);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it('only one execSync call when package.json already exists', async () => {
+      fs.writeFileSync(
+        path.join(tmpDir, 'package.json'),
+        JSON.stringify({ name: 'existing', version: '1.0.0', private: true }),
+      );
+      const calls: string[] = [];
+      const spy = jest.spyOn(childProcess, 'execSync').mockImplementation((cmd) => {
+        calls.push(cmd as string);
+        return '';
+      });
+      try {
+        await expect(installOrUpgradePackage('some-pkg', '1.0.0', true, tmpDir)).rejects.toThrow();
+        expect(calls).toHaveLength(1);
+        expect(calls[0]).toContain('some-pkg');
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it('propagates error from self-install step', async () => {
+      let callCount = 0;
+      const spy = jest.spyOn(childProcess, 'execSync').mockImplementation(() => {
+        callCount += 1;
+        if (callCount === 1) {
+          // Simulate self-install failure
+          const err = new Error('self-install network error') as Error & { stderr: string };
+          err.stderr = 'self-install network error';
+          throw err;
+        }
+        return '';
+      });
+      try {
+        await expect(installOrUpgradePackage('some-pkg', '1.0.0', true, tmpDir)).rejects.toThrow(
+          /failed to install.*self-install network error/i,
+        );
+      } finally {
+        spy.mockRestore();
+      }
+    });
   });
 });

@@ -93,6 +93,33 @@ export function getInstalledIfSatisfies(
 }
 
 /**
+ * Run the package-manager install/upgrade command for a given spec.
+ * Detects the package manager in use and executes the appropriate CLI command.
+ */
+async function runPackageManagerCommand(
+  spec: string,
+  commandType: 'add' | 'upgrade',
+  workDir: string,
+): Promise<void> {
+  const detected = await detect({ cwd: workDir });
+  const agent = detected?.agent ?? 'npm';
+
+  const resolved = resolveCommand(agent, commandType, [spec]);
+  if (!resolved) {
+    throw new Error(`Could not resolve "${commandType}" command for package manager "${agent}"`);
+  }
+
+  const cmd = `${resolved.command} ${resolved.args.join(' ')}`;
+  try {
+    execSync(cmd, { cwd: workDir, stdio: 'pipe', encoding: 'utf8' });
+  } catch (error: unknown) {
+    const e = error as { stderr?: string; stdout?: string; message?: string };
+    const detail = (e.stderr ?? e.stdout ?? e.message ?? String(error)).trim();
+    throw new Error(`Failed to install ${spec}: ${detail}`);
+  }
+}
+
+/**
  * Install and/or upgrade a package using the detected package manager.
  * Returns the installed package path under node_modules.
  * If no package.json exists in the working directory, one is initialised automatically.
@@ -117,32 +144,39 @@ export async function installOrUpgradePackage(
   // Ensure a package.json exists so the package manager can operate
   const pkgJsonPath = path.join(workDir, 'package.json');
   if (!fs.existsSync(pkgJsonPath)) {
+    // create minimal package.json
     fs.writeFileSync(
       pkgJsonPath,
       // eslint-disable-next-line no-undefined
       JSON.stringify({ name: 'npmdata-tmp', version: '1.0.0', private: true }, undefined, 2),
     );
+
+    // Ensure node_modules is ignored in .gitignore
+    const gitignorePath = path.join(workDir, '.gitignore');
+    const gitignoreEntry = 'node_modules';
+    if (fs.existsSync(gitignorePath)) {
+      const existing = fs.readFileSync(gitignorePath, 'utf8');
+      const lines = existing.split('\n').map((l) => l.trim());
+      if (!lines.includes(gitignoreEntry)) {
+        fs.appendFileSync(gitignorePath, `\n${gitignoreEntry}\n`);
+      }
+    } else {
+      fs.writeFileSync(gitignorePath, `${gitignoreEntry}\n`);
+    }
+
+    // reinstall itself to ensure it's present in node_modules for later use (e.g. to access its own package.json)
+    // this might happen if using npx, for example, which runs the package without installing it in the local node_modules
+    const selfPkgJsonPath = path.join(__dirname, '..', 'package.json');
+    const selfPkg = JSON.parse(fs.readFileSync(selfPkgJsonPath).toString()) as {
+      name: string;
+      version: string;
+    };
+    const selfSpec = `${selfPkg.name}@${selfPkg.version}`;
+    await runPackageManagerCommand(selfSpec, 'add', workDir);
   }
 
-  // Detect the package manager used in workDir (falls back to npm)
-  const detected = await detect({ cwd: workDir });
-  const agent = detected?.agent ?? 'npm';
-
-  // Resolve the correct CLI command for 'upgrade' or 'add'
-  const commandType = upgrade ? 'upgrade' : 'add';
-  const resolved = resolveCommand(agent, commandType, [spec]);
-  if (!resolved) {
-    throw new Error(`Could not resolve "${commandType}" command for package manager "${agent}"`);
-  }
-
-  const cmd = `${resolved.command} ${resolved.args.join(' ')}`;
-  try {
-    execSync(cmd, { cwd: workDir, stdio: 'pipe', encoding: 'utf8' });
-  } catch (error: unknown) {
-    const e = error as { stderr?: string; stdout?: string; message?: string };
-    const detail = (e.stderr ?? e.stdout ?? e.message ?? String(error)).trim();
-    throw new Error(`Failed to install ${spec}: ${detail}`);
-  }
+  // install or upgrade the requested package
+  await runPackageManagerCommand(spec, upgrade ? 'upgrade' : 'add', workDir);
 
   const pkgPath = path.join(workDir, 'node_modules', name);
   if (!fs.existsSync(pkgPath)) {
