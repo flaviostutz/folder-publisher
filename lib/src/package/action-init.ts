@@ -1,8 +1,11 @@
 /* eslint-disable no-console */
 import fs from 'node:fs';
 import path from 'node:path';
+import { execSync } from 'node:child_process';
 
-import { parsePackageSpec } from '../utils';
+import { detect } from 'package-manager-detector/detect';
+import { resolveCommand } from 'package-manager-detector/commands';
+
 import { NpmdataExtractEntry } from '../types';
 
 export type InitConfig = {
@@ -40,7 +43,7 @@ export async function actionInit(
       name: dirName,
       version: '1.0.0',
       description: '',
-      dependencies: { npmdata: '*' },
+      dependencies: {},
     };
   }
 
@@ -68,15 +71,7 @@ export async function actionInit(
   }));
   pkgJson.npmdata = { sets: [selfEntry, ...externalEntries] };
 
-  // Add external packages to dependencies
-  const deps = (pkgJson.dependencies as Record<string, string>) ?? {};
-  for (const pkg of externalPackages) {
-    const parsed = parsePackageSpec(pkg);
-    deps[parsed.name] = parsed.version ?? '*';
-  }
-  pkgJson.dependencies = deps;
-
-  // Write updated package.json
+  // Write updated package.json (dependencies are managed by the `add` command below)
   // eslint-disable-next-line unicorn/no-null
   fs.writeFileSync(pkgJsonPath, `${JSON.stringify(pkgJson, null, 2)}\n`, 'utf8');
 
@@ -85,6 +80,20 @@ export async function actionInit(
     fs.mkdirSync(binDir, { recursive: true });
     fs.writeFileSync(binPath, binShim, 'utf8');
     fs.chmodSync(binPath, 0o755);
+  }
+
+  // Add npmdata + any external packages via the package manager so the lockfile
+  // and package.json dependencies are updated with the correct resolved versions.
+  const detected = await detect({ cwd: outputDir });
+  const agent = detected?.agent ?? 'npm';
+  const packagesToAdd = ['npmdata', ...externalPackages];
+  const addResolved = resolveCommand(agent, 'add', packagesToAdd);
+  if (addResolved) {
+    const cmd = `${addResolved.command} ${addResolved.args.join(' ')}`;
+    if (verbose) {
+      console.log(`Running: ${cmd}`);
+    }
+    execSync(cmd, { cwd: outputDir, stdio: 'pipe' });
   }
 
   if (verbose) {

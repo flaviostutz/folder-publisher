@@ -5,10 +5,22 @@ import os from 'node:os';
 
 import { actionInit } from './action-init';
 
+// Mock execSync globally so no real package manager commands run during tests
+jest.mock('node:child_process', () => ({
+  ...jest.requireActual('node:child_process'),
+  execSync: jest.fn(),
+}));
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports, import/no-commonjs
+const { execSync: mockExecSync } = require('node:child_process') as {
+  execSync: jest.Mock;
+};
+
 let tmpDir: string;
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'npmdata-action-init-'));
+  mockExecSync.mockClear();
 });
 
 afterEach(() => {
@@ -87,7 +99,7 @@ describe('actionInit', () => {
     expect(pkgJson.npmdata.sets[0].selector.files).toEqual(['docs/**', 'data/**']);
   });
 
-  it('adds --packages as external sets and dependencies', async () => {
+  it('adds --packages as external npmdata sets', async () => {
     const outputDir = path.join(tmpDir, 'packages-pkg');
     await actionInit(outputDir, false, {
       files: ['conf/globals.js'],
@@ -95,7 +107,6 @@ describe('actionInit', () => {
     });
 
     const pkgJson = JSON.parse(fs.readFileSync(path.join(outputDir, 'package.json')).toString());
-    expect(pkgJson.dependencies.eslint).toBe('8');
     expect(pkgJson.npmdata.sets).toHaveLength(2);
     expect(pkgJson.npmdata.sets[1].package).toBe('eslint@8');
     expect(pkgJson.npmdata.sets[1].selector.files).toEqual(['conf/globals.js']);
@@ -111,5 +122,24 @@ describe('actionInit', () => {
     const pkgJson = JSON.parse(fs.readFileSync(path.join(outputDir, 'package.json')).toString());
     expect(pkgJson.npmdata.sets[0].package).toBe('self-pkg');
     expect(pkgJson.npmdata.sets[1].package).toBe('some-pkg@1');
+  });
+
+  it('runs package manager add for npmdata after writing package.json', async () => {
+    const outputDir = path.join(tmpDir, 'install-pkg');
+    await actionInit(outputDir, false);
+
+    // execSync should have been called with an "add"/"install" command including "npmdata"
+    expect(mockExecSync).toHaveBeenCalledTimes(1);
+    const cmd = mockExecSync.mock.calls[0][0] as string;
+    expect(cmd).toMatch(/npmdata/);
+  });
+
+  it('includes external packages in the add command', async () => {
+    const outputDir = path.join(tmpDir, 'ext-pkg');
+    await actionInit(outputDir, false, { packages: ['eslint@8'] });
+
+    const cmd = mockExecSync.mock.calls[0][0] as string;
+    expect(cmd).toMatch(/npmdata/);
+    expect(cmd).toMatch(/eslint@8/);
   });
 });
