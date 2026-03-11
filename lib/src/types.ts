@@ -26,7 +26,10 @@ export type SelectorConfig = {
    */
   contentRegexes?: string[];
   /**
-   * Tags this entry for --presets CLI filtering. Not forwarded to dependency packages.
+   * Filters which of the target package's own nested `npmdata.sets` are recursively
+   * extracted. Only sets in the target package whose `presets` field includes at least
+   * one of these tags will be processed. When omitted or empty, all nested sets are
+   * extracted. Not applied to the files selected from the target package itself.
    */
   presets?: string[];
   /**

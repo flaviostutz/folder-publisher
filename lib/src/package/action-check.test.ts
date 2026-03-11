@@ -178,4 +178,76 @@ describe('actionCheck', () => {
     // With selector matching all files, should be clean
     expect(result.modified).toHaveLength(0);
   }, 60000);
+
+  it('presets option filters which entries are checked', async () => {
+    await installMockPackage('presets-docs-pkg', '1.0.0', { 'docs/guide.md': '# Guide' }, tmpDir);
+    await installMockPackage('presets-data-pkg', '1.0.0', { 'data/sample.csv': 'a,b' }, tmpDir);
+
+    const docsOutput = path.join(tmpDir, 'out-docs');
+    const dataOutput = path.join(tmpDir, 'out-data');
+
+    // Set up marker and matching files for both packages so check passes when run
+    fs.mkdirSync(path.join(docsOutput, 'docs'), { recursive: true });
+    fs.writeFileSync(path.join(docsOutput, 'docs/guide.md'), '# Guide');
+    await writeMarker(markerPath(docsOutput), [
+      { path: 'docs/guide.md', packageName: 'presets-docs-pkg', packageVersion: '1.0.0' },
+    ]);
+
+    fs.mkdirSync(path.join(dataOutput, 'data'), { recursive: true });
+    fs.writeFileSync(path.join(dataOutput, 'data/sample.csv'), 'a,b');
+    await writeMarker(markerPath(dataOutput), [
+      { path: 'data/sample.csv', packageName: 'presets-data-pkg', packageVersion: '1.0.0' },
+    ]);
+
+    const entries: NpmdataExtractEntry[] = [
+      { package: 'presets-docs-pkg@1.0.0', output: { path: docsOutput }, presets: ['docs'] },
+      { package: 'presets-data-pkg@1.0.0', output: { path: dataOutput }, presets: ['data'] },
+    ];
+
+    // Check with presets=['docs'] — only the docs entry is checked
+    const resultDocs = await actionCheck({ entries, config: null, cwd: tmpDir, presets: ['docs'] });
+    expect(resultDocs.missing).toHaveLength(0);
+    expect(resultDocs.modified).toHaveLength(0);
+    expect(resultDocs.extra).toHaveLength(0);
+
+    // Delete the data file — with presets=['docs'] it is ignored
+    fs.rmSync(path.join(dataOutput, 'data/sample.csv'));
+    const resultDocsOnly = await actionCheck({
+      entries,
+      config: null,
+      cwd: tmpDir,
+      presets: ['docs'],
+    });
+    // data entry was filtered out, so missing data file is not reported
+    expect(resultDocsOnly.missing).toHaveLength(0);
+
+    // Now check with presets=['data'] — the missing data file should be reported
+    const resultData = await actionCheck({
+      entries,
+      config: null,
+      cwd: tmpDir,
+      presets: ['data'],
+    });
+    expect(resultData.missing).toContain('data/sample.csv');
+  }, 60000);
+
+  it('presets=[] checks all entries', async () => {
+    await installMockPackage('all-presets-pkg', '1.0.0', { 'file.md': '# File' }, tmpDir);
+
+    const outputDir = path.join(tmpDir, 'out-all');
+    fs.mkdirSync(outputDir, { recursive: true });
+    fs.writeFileSync(path.join(outputDir, 'file.md'), '# File');
+    await writeMarker(markerPath(outputDir), [
+      { path: 'file.md', packageName: 'all-presets-pkg', packageVersion: '1.0.0' },
+    ]);
+
+    const entries: NpmdataExtractEntry[] = [
+      { package: 'all-presets-pkg@1.0.0', output: { path: outputDir }, presets: ['some-tag'] },
+    ];
+
+    // presets=[] means no filtering — all entries pass through
+    const result = await actionCheck({ entries, config: null, cwd: tmpDir, presets: [] });
+    expect(result.missing).toHaveLength(0);
+    expect(result.modified).toHaveLength(0);
+  }, 60000);
 });

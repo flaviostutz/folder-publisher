@@ -6,8 +6,9 @@ import { runCheck } from './actions/check';
 import { runList } from './actions/list';
 import { runPurge } from './actions/purge';
 import { runInit } from './actions/init';
+import { runPresets } from './actions/presets';
 
-const KNOWN_COMMANDS = new Set(['extract', 'check', 'list', 'purge', 'init']);
+const KNOWN_COMMANDS = new Set(['extract', 'check', 'list', 'purge', 'init', 'presets']);
 
 /**
  * Top-level CLI router.
@@ -49,35 +50,48 @@ export async function cli(argv: string[], cwd?: string, configCwd?: string): Pro
   // Load config from cwd, unless --packages is specified (CLI-only mode)
   const effectiveCwd = cwd ?? process.cwd();
   const effectiveConfigCwd = configCwd ?? effectiveCwd;
-  const config = cmdArgs.includes('--packages')
-    ? null // eslint-disable-line unicorn/no-null
-    : await loadNpmdataConfig(effectiveConfigCwd);
+  const config =
+    action !== 'presets' && cmdArgs.includes('--packages')
+      ? null // eslint-disable-line unicorn/no-null
+      : await loadNpmdataConfig(effectiveConfigCwd);
 
   try {
-    switch (action) {
-      case 'extract':
-        await runExtract(config, cmdArgs, effectiveCwd);
-        break;
-      case 'check':
-        await runCheck(config, cmdArgs, effectiveCwd);
-        break;
-      case 'list':
-        await runList(config, cmdArgs, effectiveCwd);
-        break;
-      case 'purge':
-        await runPurge(config, cmdArgs, effectiveCwd);
-        break;
-      case 'init':
-        await runInit(config, cmdArgs, effectiveCwd);
-        break;
-      default:
-        throw new Error(`Unknown command: ${action}`);
-    }
+    await dispatch(action, config, cmdArgs, effectiveCwd);
     return 0;
   } catch (error) {
     // eslint-disable-next-line no-console
     console.error((error as Error).message);
     return 1;
+  }
+}
+
+async function dispatch(
+  action: string,
+  config: Awaited<ReturnType<typeof loadNpmdataConfig>>,
+  cmdArgs: string[],
+  cwd: string,
+): Promise<void> {
+  switch (action) {
+    case 'extract':
+      await runExtract(config, cmdArgs, cwd);
+      break;
+    case 'check':
+      await runCheck(config, cmdArgs, cwd);
+      break;
+    case 'list':
+      await runList(config, cmdArgs, cwd);
+      break;
+    case 'purge':
+      await runPurge(config, cmdArgs, cwd);
+      break;
+    case 'init':
+      await runInit(config, cmdArgs, cwd);
+      break;
+    case 'presets':
+      await runPresets(config, cmdArgs);
+      break;
+    default:
+      throw new Error(`Unknown command: ${action}`);
   }
 }
 

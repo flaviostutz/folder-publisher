@@ -3,7 +3,7 @@
 import path from 'node:path';
 
 import { NpmdataConfig, NpmdataExtractEntry, ProgressEvent } from '../types';
-import { parsePackageSpec, getInstalledPackagePath } from '../utils';
+import { parsePackageSpec, getInstalledPackagePath, filterEntriesByPresets } from '../utils';
 import { readOutputDirMarker } from '../fileset/markers';
 import { checkFileset } from '../fileset/check';
 
@@ -11,6 +11,7 @@ export type CheckOptions = {
   entries: NpmdataExtractEntry[];
   config: NpmdataConfig | null;
   cwd: string;
+  presets?: string[];
   verbose?: boolean;
   onProgress?: (event: ProgressEvent) => void;
   skipUnmanaged?: boolean;
@@ -28,16 +29,19 @@ export type CheckSummary = {
  */
 // eslint-disable-next-line complexity
 export async function actionCheck(options: CheckOptions): Promise<CheckSummary> {
-  const { entries, cwd, verbose = false, onProgress } = options;
+  const { entries, cwd, presets = [], verbose = false, onProgress } = options;
   const summary: CheckSummary = { missing: [], modified: [], extra: [] };
+
+  // Filter by presets (same behaviour as purge)
+  const filtered = filterEntriesByPresets(entries, presets);
 
   if (verbose) {
     console.log(
-      `[verbose] check: verifying ${entries.length} entr${entries.length === 1 ? 'y' : 'ies'} (cwd: ${cwd})`,
+      `[verbose] check: verifying ${filtered.length} entr${filtered.length === 1 ? 'y' : 'ies'} (cwd: ${cwd})`,
     );
   }
 
-  for (const entry of entries) {
+  for (const entry of filtered) {
     // Skip unmanaged entries — they write no marker so there is nothing to check.
     // The --unmanaged flag also suppresses checking for explicitly marked entries.
     if (entry.output?.unmanaged) continue;

@@ -67,7 +67,46 @@ pnpm exec npmdata check
 
 # removes all managed files
 pnpm exec npmdata purge
+
+# lists all preset tags defined in the configuration
+pnpm exec npmdata presets
 ```
+
+## Presets
+
+Entries can be tagged with `presets` so that only a subset is processed when `--presets` is given:
+
+```json
+{
+  "sets": [
+    { "package": "example-files-package", "presets": ["basic"], "output": { "path": "output" } },
+    { "package": "eslint@8",              "presets": ["extra"],  "output": { "path": "output/eslint", "unmanaged": true } }
+  ]
+}
+```
+
+```bash
+# list available preset tags
+pnpm exec npmdata presets
+# → basic
+# → extra
+
+# extract only "basic"-tagged entries
+pnpm exec npmdata extract --presets basic
+
+# check only "basic"-tagged entries
+pnpm exec npmdata check --presets basic
+```
+
+> **`presets` vs `selector.presets`**
+>
+> - **`sets[].presets`** — tags **this entry**. When a consumer runs `--presets basic`, only entries
+>   tagged `basic` are processed. This is what `npmdata presets` lists.
+>
+> - **`sets[].selector.presets`** — filters which of the **target package's own** `npmdata.sets` are
+>   recursively extracted. If `example-files-package` itself has an `npmdata.sets` array with its own
+>   preset tags, you can control which of those inner sets are pulled by setting `selector.presets` on
+>   the entry that references it.
 
 ## Running the integration test
 

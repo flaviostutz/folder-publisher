@@ -107,6 +107,22 @@ Exit codes: 0 success | 1 target dir has conflicting files
 `);
       break;
 
+    case 'presets':
+      console.log(`
+Usage: npmdata presets
+
+List all unique preset tags defined in the configuration.
+Presets are declared in each entry's "presets" field and can be used
+to selectively run extract, check, list, or purge via --presets <tag>.
+
+Options:
+  --help                  Print this help text.
+
+Output format: one preset per line, sorted alphabetically
+Exit codes: 0 success | 1 no configuration found
+`);
+      break;
+
     default:
       console.log(`
 Usage: npmdata [command] [options]
@@ -117,6 +133,7 @@ Commands:
   list               List all managed files
   purge              Remove managed files
   init               Scaffold a publishable data package
+  presets            List all preset tags defined in configuration
 
 Run 'npmdata <command> --help' for command-specific help.
 Version: ${VERSION}

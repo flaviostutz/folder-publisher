@@ -15,6 +15,7 @@ import {
   installOrUpgradePackage,
   getInstalledIfSatisfies,
   cleanupTempPackageJson,
+  filterEntriesByPresets,
 } from '../utils';
 import { diff } from '../fileset/diff';
 import { execute, rollback, deleteFiles } from '../fileset/execute';
@@ -210,7 +211,12 @@ export async function actionExtract(options: ExtractOptions): Promise<ExtractRes
         // will be (or have been) handled by the outer loop. This prevents self-referencing
         // npmdata.sets from triggering the circular-dependency guard.
         const siblingNames = new Set(entries.map((e) => parsePackageSpec(e.package).name));
-        const filteredSets = pkgNpmdataSets.filter(
+
+        // Apply selector.presets: filter the target package's own sets by the preset tags
+        // requested by the consumer. When selector.presets is empty, all sets pass through.
+        const presetFilteredSets = filterEntriesByPresets(pkgNpmdataSets, selector.presets ?? []);
+
+        const filteredSets = presetFilteredSets.filter(
           (e) =>
             !siblingNames.has(parsePackageSpec(e.package).name) &&
             !visitedPackages.has(parsePackageSpec(e.package).name),

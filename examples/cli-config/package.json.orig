@@ -61,6 +61,23 @@
         "presets": [
           "extra"
         ]
+      },
+      {
+        "package": "example-files-package",
+        "selector": {
+          "files": [
+            "conf/globals.js"
+          ],
+          "presets": [
+            "eslint"
+          ]
+        },
+        "output": {
+          "path": "output/nested-eslint"
+        },
+        "presets": [
+          "nested-eslint"
+        ]
       }
     ]
   }

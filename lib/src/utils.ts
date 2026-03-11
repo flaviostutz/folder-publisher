@@ -208,7 +208,9 @@ export function filterEntriesByPresets(
 ): NpmdataExtractEntry[] {
   if (presets.length === 0) return entries;
   return entries.filter((entry) => {
-    // Support presets at the entry level (config-file convention) or inside selector (CLI convention)
+    // entry.presets tags the set for consumer-side --presets filtering;
+    // entry.selector.presets is forwarded to the target package's own nested sets filtering.
+    // Both are valid selectors so that ad-hoc --packages + --presets CLI usage also works.
     const entryPresets = new Set([...(entry.presets ?? []), ...(entry.selector?.presets ?? [])]);
     return presets.some((p) => entryPresets.has(p));
   });

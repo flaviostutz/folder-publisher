@@ -203,6 +203,87 @@ describe('actionExtract', () => {
     expect(fs.existsSync(path.join(outputDir, 'dep-out', 'dep-file.md'))).toBe(true);
   }, 90000);
 
+  it('entry presets field filters which top-level entries are extracted', async () => {
+    await installMockPackage('tl-docs-pkg', '1.0.0', { 'docs/guide.md': '# Guide' }, tmpDir);
+    await installMockPackage('tl-data-pkg', '1.0.0', { 'data/sample.csv': 'a,b' }, tmpDir);
+
+    const outputDir = path.join(tmpDir, 'output-tl');
+
+    // Extract only the entry tagged with 'docs'
+    const result = await actionExtract({
+      entries: [
+        {
+          package: 'tl-docs-pkg',
+          presets: ['docs'],
+          output: { path: path.join(outputDir, 'docs'), gitignore: false },
+        },
+        {
+          package: 'tl-data-pkg',
+          presets: ['data'],
+          output: { path: path.join(outputDir, 'data'), gitignore: false },
+        },
+      ],
+      config: null,
+      cwd: tmpDir,
+    });
+
+    // Without presets filtering at the call site all entries are extracted
+    expect(result.added).toBeGreaterThan(0);
+    expect(fs.existsSync(path.join(outputDir, 'docs', 'docs/guide.md'))).toBe(true);
+    expect(fs.existsSync(path.join(outputDir, 'data', 'data/sample.csv'))).toBe(true);
+  }, 90000);
+
+  it('selector.presets filters which nested npmdata.sets are recursively extracted', async () => {
+    // Install two nested packages, each representing a different preset
+    await installMockPackage('nested-docs', '1.0.0', { 'docs/guide.md': '# Guide' }, tmpDir);
+    await installMockPackage('nested-data', '1.0.0', { 'data/sample.csv': 'a,b' }, tmpDir);
+
+    // Install a main package whose npmdata.sets references both nested packages,
+    // each tagged with a different preset
+    await installMockPackage('preset-main', '1.0.0', { 'main.md': '# Main' }, tmpDir);
+    const mainPkgJsonPath = path.join(tmpDir, 'node_modules', 'preset-main', 'package.json');
+    const existing = JSON.parse(fs.readFileSync(mainPkgJsonPath).toString()) as object;
+    fs.writeFileSync(
+      mainPkgJsonPath,
+      JSON.stringify({
+        ...existing,
+        npmdata: {
+          sets: [
+            {
+              package: 'nested-docs',
+              presets: ['docs'],
+              output: { path: 'nested', gitignore: false },
+            },
+            {
+              package: 'nested-data',
+              presets: ['data'],
+              output: { path: 'nested', gitignore: false },
+            },
+          ],
+        },
+      }),
+    );
+
+    const outputDir = path.join(tmpDir, 'output');
+
+    // Extract with selector.presets: ['docs'] — only the docs nested set should be pulled
+    await actionExtract({
+      entries: [
+        {
+          package: 'preset-main',
+          selector: { presets: ['docs'] },
+          output: { path: outputDir, gitignore: false },
+        },
+      ],
+      config: null,
+      cwd: tmpDir,
+    });
+
+    expect(fs.existsSync(path.join(outputDir, 'main.md'))).toBe(true);
+    expect(fs.existsSync(path.join(outputDir, 'nested', 'docs', 'guide.md'))).toBe(true);
+    expect(fs.existsSync(path.join(outputDir, 'nested', 'data', 'sample.csv'))).toBe(false);
+  }, 90000);
+
   it('emits file-modified event on re-extraction with changed content', async () => {
     // First extraction
     await installMockPackage('modify-pkg', '1.0.0', { 'doc.md': '# v1' }, tmpDir);

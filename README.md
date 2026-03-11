@@ -119,7 +119,10 @@ npm publish
       },
       {
         "package": "org-configs@^1.2.0",
-        "selector": { "contentRegexes": ["env: production"] },
+        "selector": {
+          "contentRegexes": ["env: production"],
+          "presets": ["reports"]
+        },
         "output": { "path": "./configs" },
         "presets": ["prod", "staging"]
       }
@@ -127,6 +130,10 @@ npm publish
   }
 }
 ```
+
+> **`presets` vs `selector.presets`**
+> - `sets[].presets` — tags **this entry** so it is only processed when `--presets <tag>` matches. Use this in a consumer config to pick which source packages to extract.
+> - `sets[].selector.presets` — filters which of the **target package's own** `npmdata.sets` are recursively extracted. Only the nested sets inside the target package whose `presets` fields match will run.
 
 **Step 3 — Consumer installs and runs**
 
@@ -161,7 +168,7 @@ D  data/old-file.json
 
 ---
 
-## Check, list and purge
+## Check, list, purge and presets
 
 ```sh
 # verify files are in sync (exit 0 = ok, exit 2 = differences)
@@ -173,6 +180,9 @@ npx npmdata list --output ./data
 # remove managed files (no network required)
 npx npmdata purge --packages my-shared-assets --output ./data
 npx npmdata purge --packages my-shared-assets --output ./data --dry-run
+
+# list all preset tags defined in your configuration
+npx npmdata presets
 ```
 
 ---
@@ -184,16 +194,17 @@ Each entry in `npmdata.sets` supports:
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `package` | `string` | required | Package spec: `my-pkg` or `my-pkg@^1.2.3` |
+| `presets` | `string[]` | none | Tags this entry so it is included only when the matching `--presets <tag>` flag is used. Listed by `npmdata presets` |
 | `output.path` | `string` | `.` (cwd) | Extraction directory, relative to where the command runs |
 | `selector.files` | `string[]` | all files | Glob patterns to filter extracted files |
 | `selector.contentRegexes` | `string[]` | none | Regex patterns to filter files by content |
+| `selector.presets` | `string[]` | none | Filters which of the **target package's own** `npmdata.sets` are recursively extracted. Only sets in the target whose `presets` matches are processed. Does not affect which files are selected from the target package itself |
 | `output.force` | `boolean` | `false` | Overwrite unmanaged or foreign-owned files |
 | `output.keepExisting` | `boolean` | `false` | Skip files that already exist; create them when absent |
 | `output.gitignore` | `boolean` | `true` | Write `.gitignore` alongside managed files |
 | `output.unmanaged` | `boolean` | `false` | Write files without tracking (no marker, no read-only) |
 | `output.dryRun` | `boolean` | `false` | Simulate without writing |
 | `upgrade` | `boolean` | `false` | Force fresh package install |
-| `presets` | `string[]` | none | Tags for selective execution via `--presets` |
 | `output.symlinks` | `SymlinkConfig[]` | none | Post-extract symlink operations |
 | `output.contentReplacements` | `ContentReplacementConfig[]` | none | Post-extract content replacements |
 
@@ -222,7 +233,7 @@ Applies regex replacements to workspace files after extraction.
 
 ```
 Usage:
-  npx npmdata [init|extract|check|list|purge] [options]
+  npx npmdata [init|extract|check|list|purge|presets] [options]
 
 Init:     --files <patterns>    Glob patterns of files to publish (required)
           --packages <specs>    Additional upstream packages to bundle
@@ -239,18 +250,24 @@ Extract:  --packages <specs>    Package specs (omit to read from config file)
           --unmanaged           Write without tracking
           --dry-run             Preview without writing
           --upgrade             Reinstall even if present
+          --presets <tags>      Only process entries matching these preset tags
           --verbose, -v         Detailed progress output
           --silent              Final result line only
 
 Check:    --packages <specs>    Same format as extract
           --output, -o <dir>    Directory to check
+          --presets <tags>      Only check entries matching these preset tags
 
 Purge:    --packages <specs>    Package names to purge
           --output, -o <dir>    Directory to purge from
           --dry-run             Preview without deleting
+          --presets <tags>      Only purge entries matching these preset tags
           --silent              Suppress per-file output
 
 List:     --output, -o <dir>    Directory to inspect
+
+Presets:  (no options)          Lists all preset tags defined in configuration,
+                                sorted alphabetically, one per line
 ```
 
 ---

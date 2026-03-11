@@ -208,4 +208,29 @@ describe('cli', () => {
     spy.mockRestore();
     expect(lines.join('\n')).toMatch(/\d+\.\d+/);
   });
+
+  it('routes to presets command — lists preset tags from config', async () => {
+    fs.writeFileSync(
+      path.join(tmpDir, '.npmdatarc.json'),
+      JSON.stringify({
+        sets: [
+          { package: PKG_NAME, presets: ['prod', 'staging'] },
+          { package: PKG_NAME, presets: ['dev'] },
+        ],
+      }),
+    );
+
+    const lines: string[] = [];
+    const spy = jest.spyOn(console, 'log').mockImplementation((...args) => {
+      lines.push(args.join(' '));
+    });
+    const code = await cli(['node', 'npmdata', 'presets'], tmpDir);
+    spy.mockRestore();
+
+    expect(code).toBe(0);
+    expect(lines).toContain('dev');
+    expect(lines).toContain('prod');
+    expect(lines).toContain('staging');
+    expect(lines).toEqual(['dev', 'prod', 'staging']); // sorted
+  }, 60_000);
 });

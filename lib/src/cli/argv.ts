@@ -88,6 +88,10 @@ export function buildEntriesFromArgv(parsed: ParsedArgv): NpmdataExtractEntry[] 
   const selector: SelectorConfig = {};
   if (parsed.files) selector.files = parsed.files;
   if (parsed.contentRegexes) selector.contentRegexes = parsed.contentRegexes;
+  // In ad-hoc --packages mode there is no entry-level presets tag, so we place
+  // --presets into selector.presets. filterEntriesByPresets checks both fields,
+  // which keeps --presets filtering working in this mode.
+  // selector.presets is also forwarded to the target package's nested set extraction.
   if (parsed.presets) selector.presets = parsed.presets;
   if (parsed.upgrade) selector.upgrade = true;
 

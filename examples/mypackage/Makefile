@@ -5,6 +5,8 @@ SHELL := /bin/bash
 
 init-publisher: install
 	pnpm exec npmdata init --files "docs/**,data/**,conf/globals.js,.configs/**" --packages eslint@8
+	# add 'eslint' preset tag to the eslint@8 nested set so consumers can filter by preset
+	jq '.npmdata.sets |= map(if .package == "eslint@8" then . + {presets: ["eslint"]} else . end)' package.json > package.json.tmp && mv package.json.tmp package.json
 
 build: install
 	rm -rf dist
@@ -37,7 +39,6 @@ install:
 	# replace the dependency with the local package
 	pnpm add npmdata@file:../../lib/dist/npmdata-0.0.1.tgz
 	@# update local tar gz checksum
-	pnpm update cdk-practical-constructs
 	pnpm install
 
 all: build test

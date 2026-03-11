@@ -44,7 +44,10 @@
             "conf/globals.js",
             ".configs/**"
           ]
-        }
+        },
+        "presets": [
+          "eslint"
+        ]
       }
     ]
   }

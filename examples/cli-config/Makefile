@@ -69,6 +69,21 @@ test:
 	test ! -e output/data/users-dataset/user1.json
 	test -e output/lastUpdated
 
+	# --- Test 4: presets command lists all preset tags ---
+	pnpm exec npmdata presets | grep -x "basic"
+	pnpm exec npmdata presets | grep -x "extra"
+	pnpm exec npmdata presets | grep -x "nested-eslint"
+
+	# --- Test 5: selector presets - only extract eslint-related nested sets ---
+	rm -rf output
+	pnpm exec npmdata extract --presets "nested-eslint"
+	# nested eslint set (selector.presets=["eslint"]) should have extracted conf/globals.js
+	test -e output/nested-eslint/conf/globals.js
+	# docs and data should not be extracted (only 'nested-eslint' top-level set ran)
+	test ! -e output/docs/README.md
+	test ! -e output/data/users-dataset/user1.json
+	pnpm exec npmdata check --presets "nested-eslint"
+
 	@echo "All config-file mode tests passed"
 
 clean:

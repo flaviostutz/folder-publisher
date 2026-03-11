@@ -34,6 +34,7 @@ export async function runCheck(
     entries,
     config,
     cwd,
+    presets: parsed.presets ?? [],
     verbose: parsed.verbose,
     skipUnmanaged: parsed.unmanaged,
   });
