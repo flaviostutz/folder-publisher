@@ -575,11 +575,7 @@ describe('installPackage', () => {
 
   describe('dev dependency flag', () => {
     it('adds -D to add command args for non-Deno package managers', async () => {
-      jest
-        .mocked(detect)
-        .mockResolvedValue({ agent: 'npm', name: 'npm', version: null } as unknown as ReturnType<
-          Awaited<typeof detect>
-        >);
+      jest.mocked(detect).mockResolvedValue({ agent: 'npm', name: 'npm', version: null } as any);
       fs.writeFileSync(
         path.join(tmpDir, 'package.json'),
         JSON.stringify({ name: 'existing', version: '1.0.0', private: true }),
@@ -601,11 +597,7 @@ describe('installPackage', () => {
     });
 
     it('adds -d (not -D) to add command args for Deno', async () => {
-      jest
-        .mocked(detect)
-        .mockResolvedValue({ agent: 'deno', name: 'deno', version: null } as unknown as ReturnType<
-          Awaited<typeof detect>
-        >);
+      jest.mocked(detect).mockResolvedValue({ agent: 'deno', name: 'deno', version: null } as any);
       fs.writeFileSync(
         path.join(tmpDir, 'package.json'),
         JSON.stringify({ name: 'existing', version: '1.0.0', private: true }),
@@ -649,11 +641,7 @@ describe('installPackage', () => {
     });
 
     it('does not add --workspace-root when pnpm-workspace.yaml is absent', async () => {
-      jest
-        .mocked(detect)
-        .mockResolvedValue({ agent: 'pnpm', name: 'pnpm', version: null } as unknown as ReturnType<
-          Awaited<typeof detect>
-        >);
+      jest.mocked(detect).mockResolvedValue({ agent: 'pnpm', name: 'pnpm', version: null } as any);
       fs.writeFileSync(
         path.join(tmpDir, 'package.json'),
         JSON.stringify({ name: 'existing', version: '1.0.0', private: true }),
@@ -673,11 +661,7 @@ describe('installPackage', () => {
     });
 
     it('does not add --workspace-root when npm is used even if pnpm-workspace.yaml exists', async () => {
-      jest
-        .mocked(detect)
-        .mockResolvedValue({ agent: 'npm', name: 'npm', version: null } as unknown as ReturnType<
-          Awaited<typeof detect>
-        >);
+      jest.mocked(detect).mockResolvedValue({ agent: 'npm', name: 'npm', version: null } as any);
       fs.writeFileSync(
         path.join(tmpDir, 'package.json'),
         JSON.stringify({ name: 'existing', version: '1.0.0', private: true }),
