@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.15.3 (2026-03-11)
+
+### Maintenance
+
+* release: 0.15.2 [[afd07b2](https://github.com/flaviostutz/npmdata/commit/afd07b2bda0abcbeebfe10becb32f5c6a437e914)]
+* spawn and error handling improvements [[e74072e](https://github.com/flaviostutz/npmdata/commit/e74072eda6260d220b88653f67a5ff8da34b011b)]
+
+### Misc
+
+
+### Info
+
+* Authors: Flavio Stutz <flaviostutz@gmail.com>
+
+
 ## 0.15.2 (2026-03-11)
 
 ### Maintenance
