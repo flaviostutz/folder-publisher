@@ -34,7 +34,8 @@ test:
 	# Custom content must be preserved — keepExisting skips extraction when file exists
 	grep -q "custom local content" output/.configs/database.config.json
 
-	# check: all managed files should be in sync
+	# check: all managed files should be in sync (database.config.json is drifted, but is unmanaged)
+# 	pnpm exec npmdata check --config myconfig.json && return 1 || echo "Check correctly detected drift in unmanaged file"
 	pnpm exec npmdata check --config myconfig.json
 
 	# --- Test 3: purge removes managed files but leaves the unmanaged file behind ---

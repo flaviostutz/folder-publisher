@@ -14,10 +14,6 @@ importers:
       npmdata:
         specifier: file:../lib/dist/npmdata-0.0.1.tgz
         version: file:../lib/dist/npmdata-0.0.1.tgz
-    devDependencies:
-      eslint:
-        specifier: ^8.57.1
-        version: 8.57.1
 
 packages:
 
@@ -353,12 +349,12 @@ packages:
     resolution: {integrity: sha512-OWND8ei3VtNC9h7V60qff3SVobHr996CTwgxubgyQYEpg290h9J0buyECNNJexkFm5sOajh5G116RYA1c8ZMSw==}
 
   npmdata@file:../../lib/dist/npmdata-0.0.1.tgz:
-    resolution: {integrity: sha512-SObpx75KnfmDaQt8FhqJwPls1XRmplkMi24o1eYwhRuqjeIEGcLjbHRsjKQHeU0sPp1MjvCV+3+hrG1Y+RArCw==, tarball: file:../../lib/dist/npmdata-0.0.1.tgz}
+    resolution: {integrity: sha512-i8nibzKtMDF8NwqIKIx5wT1wKTpy9LadLxhSkmpcbsC45i4BzQhRP7rDKFxTnuSpzuDiOFysSVNRmAFd/r+Xsw==, tarball: file:../../lib/dist/npmdata-0.0.1.tgz}
     version: 0.0.1
     hasBin: true
 
   npmdata@file:../lib/dist/npmdata-0.0.1.tgz:
-    resolution: {integrity: sha512-SObpx75KnfmDaQt8FhqJwPls1XRmplkMi24o1eYwhRuqjeIEGcLjbHRsjKQHeU0sPp1MjvCV+3+hrG1Y+RArCw==, tarball: file:../lib/dist/npmdata-0.0.1.tgz}
+    resolution: {integrity: sha512-i8nibzKtMDF8NwqIKIx5wT1wKTpy9LadLxhSkmpcbsC45i4BzQhRP7rDKFxTnuSpzuDiOFysSVNRmAFd/r+Xsw==, tarball: file:../lib/dist/npmdata-0.0.1.tgz}
     version: 0.0.1
     hasBin: true
 

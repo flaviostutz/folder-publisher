@@ -59,7 +59,7 @@ export async function execute(
   // Write toAdd files
   for (const op of map.toAdd) {
     if (verbose) {
-      console.log(`[verbose] execute: adding file ${op.relPath} -> ${op.destPath}`);
+      console.log(`[verbose] execute: adding file ${op.destPath}`);
     }
     if (!dryRun) {
       ensureDir(path.dirname(op.destPath));
@@ -79,7 +79,7 @@ export async function execute(
   // Write toModify files
   for (const op of map.toModify) {
     if (verbose) {
-      console.log(`[verbose] execute: modifying file ${op.relPath} -> ${op.destPath}`);
+      console.log(`[verbose] execute: modifying file ${op.destPath}`);
     }
     if (!dryRun) {
       ensureDir(path.dirname(op.destPath));
