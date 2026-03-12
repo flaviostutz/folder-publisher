@@ -935,4 +935,26 @@ describe('actionExtract', () => {
     // level3 files at outputDir/l2/l3/
     expect(fs.existsSync(path.join(outputDir, 'l2', 'l3', 'deep.md'))).toBe(true);
   }, 90000);
+
+  it('does not extract LICENSE file by default', async () => {
+    await installMockPackage(
+      'license-pkg',
+      '1.0.0',
+      {
+        'docs/guide.md': '# Guide',
+        LICENSE: 'MIT License',
+      },
+      tmpDir,
+    );
+
+    const outputDir = path.join(tmpDir, 'output');
+    await actionExtract({
+      entries: [{ package: 'license-pkg', output: { path: outputDir, gitignore: false } }],
+      config: null,
+      cwd: tmpDir,
+    });
+
+    expect(fs.existsSync(path.join(outputDir, 'docs/guide.md'))).toBe(true);
+    expect(fs.existsSync(path.join(outputDir, 'LICENSE'))).toBe(false);
+  }, 60000);
 });

@@ -49,7 +49,7 @@ export async function actionExtract(options: ExtractOptions): Promise<ExtractRes
     entries,
     config,
     cwd,
-    verbose = false,
+    verbose,
     onProgress,
     visitedPackages = new Set<string>(),
   } = options;

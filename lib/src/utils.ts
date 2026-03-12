@@ -146,6 +146,11 @@ export async function installOrUpgradePackage(
   cwd?: string,
   verbose?: boolean,
 ): Promise<string> {
+  if (verbose) {
+    console.log(
+      `[verbose] installing/upgrading package="${name}", version="${version}", upgrade=${upgrade}, cwd="${cwd}"`,
+    );
+  }
   const workDir = cwd ?? process.cwd();
   const spec = version ? `${name}@${version}` : `${name}@latest`;
 
@@ -167,9 +172,7 @@ export async function installOrUpgradePackage(
   const pkgJsonPath = path.join(workDir, 'package.json');
   if (!fs.existsSync(pkgJsonPath)) {
     if (verbose) {
-      console.log(
-        `[verbose] installOrUpgrade: no package.json found in ${workDir}, initializing one`,
-      );
+      console.log(`[verbose] No package.json found in ${workDir}, initializing one`);
     }
     initTempPackageJson(workDir, verbose);
 
@@ -186,14 +189,14 @@ export async function installOrUpgradePackage(
         `[verbose] installOrUpgrade: reinstalling self (${selfSpec}) in dir ${workDir} to ensure it's available for this extraction`,
       );
     }
-    await runPackageManagerCommand(selfSpec, 'add', workDir);
+    await runPackageManagerCommand(selfSpec, 'add', workDir, verbose);
   }
 
   // install or upgrade the requested package
   // make sure it's in package.json dependencies (needed before "upgrade")
-  await runPackageManagerCommand(spec, 'add', workDir);
+  await runPackageManagerCommand(spec, 'add', workDir, verbose);
   if (upgrade) {
-    await runPackageManagerCommand(spec, 'upgrade', workDir);
+    await runPackageManagerCommand(spec, 'upgrade', workDir, verbose);
   }
 
   let pkgPath = path.join(workDir, 'node_modules', name);
@@ -339,21 +342,22 @@ export function spawnWithLog(
   verbose: boolean | undefined,
   failOnError: boolean,
 ): ReturnType<typeof spawnSync> {
+  const scriptCmd = `${command} ${args.join(' ')}`;
   if (verbose) {
-    console.log(`[verbose] Running command: ${command} ${args.join(' ')} in ${workDir}`);
+    console.log(`[verbose] Running command: ${scriptCmd} in ${workDir}`);
   }
-  const result = spawnSync(command, args, {
+  const result = spawnSync(scriptCmd, undefined, {
     cwd: workDir,
     shell: true,
     stdio: 'pipe',
     encoding: 'utf8',
   });
 
-  if (verbose) {
-    if (result.stdout.toString().trim().length > 0) {
+  if (verbose || result.status !== 0) {
+    if (result.stdout.toString().length > 0) {
       console.log(result.stdout.toString());
     }
-    if (result.stderr.toString().trim().length > 0) {
+    if (result.stderr.toString().length > 0) {
       console.error(result.stderr.toString());
     }
   }
@@ -368,11 +372,7 @@ export function spawnWithLog(
   }
 
   if (result.status !== 0 && failOnError) {
-    const stderr = result.stderr?.toString().trim() ?? '';
-    throw new Error(
-      `Command "${command} ${args.join(' ')}" failed with exit code ${result.status}` +
-        (stderr ? `:\n${stderr}` : ''),
-    );
+    throw new Error(`Command "${scriptCmd}" failed with exit code ${result.status}`);
   }
 
   return result;

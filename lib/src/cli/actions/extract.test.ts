@@ -326,19 +326,25 @@ describe('runExtract — postExtractScript', () => {
 
   it('runs postExtractScript after successful non-dry-run extract', async () => {
     await runExtract(configWithScript, [], '/cwd');
-    expect(mockSpawnSync).toHaveBeenCalledWith('echo done', [], {
-      cwd: '/cwd',
-      shell: true,
-      stdio: 'pipe',
-      encoding: 'utf8',
-    });
+    expect(mockSpawnSync).toHaveBeenCalledWith(
+      expect.stringContaining('echo done'),
+      // eslint-disable-next-line no-undefined
+      undefined,
+      {
+        cwd: '/cwd',
+        shell: true,
+        stdio: 'pipe',
+        encoding: 'utf8',
+      },
+    );
   });
 
   it('appends argv to the postExtractScript command', async () => {
     await runExtract(configWithScript, ['--silent'], '/cwd');
     expect(mockSpawnSync).toHaveBeenCalledWith(
       expect.stringContaining('--silent'),
-      [],
+      // eslint-disable-next-line no-undefined
+      undefined,
       expect.any(Object),
     );
   });
