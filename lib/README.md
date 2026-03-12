@@ -134,12 +134,6 @@ pnpm dlx npmdata init --files "docs/**" --packages shared-configs@^1.0.0
 # share multiple additional packages at once
 pnpm dlx npmdata init --files "docs/**" --packages "shared-configs@^1.0.0,base-templates@2.x"
 
-# skip .gitignore entries for managed files (gitignore is enabled by default)
-pnpm dlx npmdata init --files "docs/**,data/**" --no-gitignore
-
-# mark extracted files as unmanaged so consumers can edit them freely;
-# files won't be tracked, made read-only, or added to .gitignore
-pnpm dlx npmdata init --files "templates/**" --unmanaged
 ```
 
 `init` updates `package.json` with the right `files`, `bin`, and `dependencies` fields so those folders are included when the package is published, and writes a thin `bin/npmdata.js` entry point. Then publish normally:
@@ -264,7 +258,7 @@ Each entry in the `npmdata.sets` array in `package.json` supports the following 
 | `output.gitignore` | `boolean` | `true` | Create/update a `.gitignore` file alongside each `.npmdata` marker file. Set to `false` to disable. |
 | `output.unmanaged` | `boolean` | `false` | Write files without a `.npmdata` marker, `.gitignore` update, or read-only flag. Existing files are skipped. |
 | `output.dryRun` | `boolean` | `false` | Simulate extraction without writing anything to disk. |
-| `upgrade` | `boolean` | `false` | Force a fresh install of the package even when a satisfying version is already installed. |
+| `selector.upgrade` | `boolean` | `false` | Force a fresh install of the package even when a satisfying version is already installed. |
 | `silent` | `boolean` | `false` | Suppress per-file output, printing only the final result line. |
 | `presets` | `string[]` | none | Presets used to group and selectively run entries with `--presets`. |
 | `output.symlinks` | `SymlinkConfig[]` | none | Post-extract symlink operations (see below). |
@@ -297,7 +291,8 @@ Example with multiple options:
     {
       "package": "my-shared-assets@^2.0.0",
       "selector": {
-        "files": ["docs/**", "configs/*.json"]
+        "files": ["docs/**", "configs/*.json"],
+        "upgrade": true
       },
       "output": {
         "path": "./data",
@@ -309,7 +304,6 @@ Example with multiple options:
           { "files": "docs/**\/*.md", "match": "<!-- version: .* -->", "replace": "<!-- version: 2.0.0 -->" }
         ]
       },
-      "upgrade": true,
       "presets": ["prod"]
     }
   ]
@@ -318,9 +312,11 @@ Example with multiple options:
 
 ### 3. Check files are in sync
 
+Verifies that every file in the output directory matches what is currently in the published package. When the target package itself declares `npmdata.sets`, check recurses into those transitive dependencies — reporting drift at every level of the hierarchy without downloading anything new beyond what is already installed. Use `selector.presets` on an entry to restrict which of the target's sets are checked.
+
 ```sh
 npx npmdata check --packages my-shared-assets --output ./data
-# exit 0 = in sync, exit 2 = differences found
+# exit 0 = in sync, exit 1 = drift or error
 
 # check multiple packages
 npx npmdata check --packages "my-shared-assets,another-pkg" --output ./data
@@ -355,7 +351,7 @@ another-pkg@1.0.0
 
 ### 5. Purge managed files
 
-Remove all files previously extracted by one or more packages without touching any other files in the output directory. No network access or package installation is required — only the local `.npmdata` marker state is used.
+Remove all files previously extracted by one or more packages without touching any other files in the output directory. No network access or package installation is required — only the local `.npmdata` marker state is used. When the target package itself declares `npmdata.sets`, purge recurses into those transitive dependencies and removes their managed files too, mirroring what extract originally created.
 
 ```sh
 # remove all files managed by a package
@@ -369,6 +365,65 @@ npx npmdata purge --packages my-shared-assets --output ./data --dry-run
 ```
 
 After a purge, the corresponding entries are removed from the `.npmdata` marker file and any empty directories are cleaned up. `.gitignore` sections written by `extract` are also removed.
+
+## Hierarchical package resolution
+
+`extract`, `check`, and `purge` are all hierarchy-aware: when a target package carries its own `npmdata.sets` block in its `package.json`, the command automatically recurses into those transitive dependencies.
+
+This lets you build layered data package chains:
+
+```
+consumer project
+  └─ my-org-configs          (npm package with npmdata.sets)
+       ├─ base-datasets       (another npm package with its own files)
+       └─ org-templates       (another npm package with its own files)
+            └─ raw-assets     (leaf package)
+```
+
+Running `npx npmdata extract --packages my-org-configs --output ./data` will extract files from every package in the chain, not just `my-org-configs` itself.
+
+### Output path resolution
+
+Each level's `output.path` is resolved relative to the caller's own `output.path`. A package at depth 1 with `output.path: "./configs"` and a transitive dependency with `output.path: "./shared"` will land at `./configs/shared`.
+
+### Caller overrides (extract only)
+
+When `extract` recurses, the caller's `output` flags are inherited by every transitive dependency, with caller-defined values always winning:
+
+| Caller sets | Effect on transitive entries |
+|---|---|
+| `force: true` | Transitive entries also overwrite unmanaged / foreign files |
+| `dryRun: true` | No files are written anywhere in the hierarchy |
+| `keepExisting: true` | Existing files are skipped at every level |
+| `gitignore: false` | No `.gitignore` entries are created anywhere |
+| `unmanaged: true` | All transitive files are written without a marker or read-only flag |
+| `symlinks` / `contentReplacements` | Appended to each transitive entry's own lists |
+
+Settings that are undefined on the caller are left as-is so the transitive package's own defaults apply.
+
+### Filtering transitive sets with `selector.presets`
+
+Set `selector.presets` on an entry to control which sets inside the target package are recursed into. Only sets whose `presets` tag overlaps with the filter are processed; sets with no `presets` are skipped when a filter is active.
+
+```json
+{
+  "npmdata": {
+    "sets": [
+      {
+        "package": "my-org-configs@^2.0.0",
+        "output": { "path": "./data" },
+        "selector": { "presets": ["prod"] }
+      }
+    ]
+  }
+}
+```
+
+The same filtering is applied during `check` and `purge` so they stay in sync with what `extract` originally wrote.
+
+### Circular dependency detection
+
+If a package chain references itself (directly or transitively), the command stops immediately with an error rather than looping forever. Sibling packages — entries already being processed at the same level — are also skipped to prevent double-processing.
 
 ## CLI reference
 
@@ -388,18 +443,13 @@ Global options:
   --version        Show version
 
 Init options:
-  --files <patterns>       Comma-separated glob patterns of files to publish (required)
+  --files <patterns>       Comma-separated glob patterns of files to publish
                            e.g. "docs/**,data/**,configs/*.json"
   --packages <specs>       Comma-separated additional package specs to bundle as data sources.
                            Each spec is "name" or "name@version", e.g.
                            "shared-configs@^1.0.0,base-templates@2.x".
-                           Listed under `npmdata.additionalPackages` in package.json and
-                           added to `dependencies` so consumers pull data from all of them.
-  --no-gitignore           Skip adding .gitignore entries for managed files
-                           (gitignore is enabled by default)
-  --unmanaged              Mark all generated npmdata entries as unmanaged: extracted files
-                           are written without a .npmdata marker, without updating .gitignore,
-                           and without being made read-only. Existing files are skipped.
+                           Added to `dependencies` so consumers pull data from all of them.
+  --output, -o <dir>       Directory to scaffold into (default: current directory)
 
 Extract options:
   --packages <specs>       Comma-separated package specs.
@@ -444,110 +494,48 @@ List options:
 `npmdata` also exports a programmatic API:
 
 ```typescript
-import { extract, check, list, purge, initPublisher, parsePackageSpec, isBinaryFile } from 'npmdata';
-import type { ConsumerConfig, ConsumerResult, CheckResult, PurgeConfig, ProgressEvent } from 'npmdata';
+import { actionExtract, actionCheck, actionList, actionPurge } from 'npmdata';
+import type { NpmdataExtractEntry, ProgressEvent } from 'npmdata';
 
-// extract files from one package
-const result = await extract({
-  packages: ['my-shared-assets@^2.0.0'],
-  outputDir: './data',
-  gitignore: true,
-});
+const entries: NpmdataExtractEntry[] = [
+  { package: 'my-shared-assets@^2.0.0', output: { path: './data' } },
+];
+const cwd = process.cwd();
+
+// extract files
+const result = await actionExtract({ entries, cwd });
 console.log(result.added, result.modified, result.deleted);
 
 // dry-run: preview changes without writing files
-const preview = await extract({
-  packages: ['my-shared-assets@^2.0.0'],
-  outputDir: './data',
-  dryRun: true,
-});
-console.log('Would add', preview.added, 'files');
-
-// force-reinstall the package even if already present
-await extract({
-  packages: ['my-shared-assets@latest'],
-  outputDir: './data',
-  upgrade: true,
-});
-
-// extract without npmdata tracking: files are writable, no .npmdata marker is written,
-// no .gitignore entry is created. Existing files are left untouched (skipped).
-await extract({
-  packages: ['shared-templates'],
-  outputDir: './templates',
-  unmanaged: true,
-});
+const dryResult = await actionExtract({ entries: entries.map(e => ({ ...e, output: { ...e.output, dryRun: true } })), cwd });
+console.log('Would add', dryResult.added, 'files');
 
 // track progress file-by-file
-await extract({
-  packages: ['my-shared-assets@^2.0.0'],
-  outputDir: './data',
+await actionExtract({
+  entries,
+  cwd,
   onProgress: (event: ProgressEvent) => {
-    if (event.type === 'file-added')   console.log('A', event.file);
+    if (event.type === 'file-added')    console.log('A', event.file);
     if (event.type === 'file-modified') console.log('M', event.file);
-    if (event.type === 'file-deleted') console.log('D', event.file);
+    if (event.type === 'file-deleted')  console.log('D', event.file);
   },
 });
 
-// extract files from multiple packages into the same output directory
-const multiResult = await extract({
-  packages: ['my-shared-assets@^2.0.0', 'another-pkg@1.x'],
-  outputDir: './data',
-});
-
-// check sync status — per-package breakdown
-const status = await check({
-  packages: ['my-shared-assets'],
-  outputDir: './data',
-});
-if (!status.ok) {
-  console.log('Missing:', status.differences.missing);
-  console.log('Modified:', status.differences.modified);
-  console.log('Extra:', status.differences.extra);
-  for (const pkg of status.sourcePackages) {
-    if (!pkg.ok) {
-      console.log(pkg.name, 'missing:', pkg.differences.missing);
-      console.log(pkg.name, 'modified:', pkg.differences.modified);
-      console.log(pkg.name, 'extra:', pkg.differences.extra);
-    }
-  }
+// check sync status
+const summary = await actionCheck({ entries, cwd });
+const hasDrift = summary.missing.length > 0 || summary.modified.length > 0 || summary.extra.length > 0;
+if (hasDrift) {
+  console.log('Missing:', summary.missing);
+  console.log('Modified:', summary.modified);
+  console.log('Extra:', summary.extra);
 }
 
-// remove all files previously extracted by a package (no network required)
-await purge({
-  packages: ['my-shared-assets'],
-  outputDir: './data',
-});
-
-// dry-run: preview what would be deleted without removing anything
-const purgePreview = await purge({
-  packages: ['my-shared-assets'],
-  outputDir: './data',
-  dryRun: true,
-});
-console.log('Would delete', purgePreview.deleted, 'files');
-
-// track progress during purge
-await purge({
-  packages: ['my-shared-assets'],
-  outputDir: './data',
-  onProgress: (event: ProgressEvent) => {
-    if (event.type === 'file-deleted') console.log('D', event.file);
-  },
-});
+// remove all managed files (no network required)
+await actionPurge({ entries, config: null, cwd });
 
 // list all files managed by npmdata in an output directory
-const managed = list('./data');
-// managed is Array<{ packageName: string; packageVersion: string; files: string[] }>
-
-// initialize a publisher package
-await initPublisher(['docs', 'data'], { workingDir: './my-package' });
-
-// utility: parse a package spec string
-const { name, version } = parsePackageSpec('my-pkg@^1.0.0');
-
-// utility: detect whether a file is binary
-const binary = isBinaryFile('/path/to/file.bin');
+const managed = await actionList({ entries, config: null, cwd });
+// ManagedFileMetadata[]: Array<{ path: string; packageName: string; packageVersion: string }>
 ```
 
 ### `ProgressEvent` type
@@ -580,39 +568,24 @@ Multiple packages can coexist in the same output directory; each owns its own fi
 
 ### Module overview
 
-| Module | Purpose |
+| Folder / file | Purpose |
 |---|---|
-| `publisher.ts` | `initPublisher()` — scaffolds a publishable package (updates `package.json`, generates bin script) |
-| `consumer.ts` | `extract()` and `check()` — installs a package from the registry, copies files, manages marker files |
-| `runner.ts` | Entry point injected into the generated bin script; delegates to the CLI |
-| `cli.ts` / `main.ts` | CLI parsing and top-level entry point |
-| `utils.ts` | File I/O helpers: glob matching via `minimatch`, SHA-256 hashing, CSV marker read/write, package manager detection |
-| `types.ts` | Shared TypeScript types and constants (e.g. `DEFAULT_FILENAME_PATTERNS`) |
-
-### Publish side (`publisher.ts`)
-
-`initPublisher()` modifies the target `package.json` to include `files`, `bin`, and `dependencies` fields, then writes a thin `bin/npmdata.js` that calls `runner.run(__dirname)`. The generated script is kept minimal on purpose — all logic lives in this library.
-
-### Consumer side (`consumer.ts`)
-
-`extract()` flow:
-1. Detects the package manager (`pnpm` / `yarn` / `npm`) via lock-file presence.
-2. For each entry in `config.packages`, parses the spec (`name` or `name@version`) and runs `<pm> add <package>@<version>` to resolve the package.
-3. Iterates matching files (glob + optional content regex) from each installed package.
-4. Copies files into `outputDir`, tracking state in a `.npmdata` pipe-delimited marker file per output directory.
-5. Optionally writes a `.gitignore` section around the managed files.
-
-`check()` performs the same resolution for each package in `config.packages` but compares SHA-256 hashes without writing any files.
+| `src/cli/` | CLI entry-points: argument parsing, help text, config loading, per-command handlers |
+| `src/package/` | Package-level orchestration: config resolution, fileset iteration, purge and init coordination |
+| `src/fileset/` | File-level extraction, diff, check, and sync logic |
+| `src/types.ts` | Shared TypeScript types |
+| `src/utils.ts` | Low-level utilities: package install, glob/hash helpers, package manager detection |
+| `src/index.ts` | Public API surface |
 
 ### Marker file (`.npmdata`)
 
-Each output directory that contains managed files gets a `.npmdata` pipe-delimited file. Columns: `path`, `packageName`, `packageVersion`, `force`. This is the source of truth for ownership tracking and clean removal.
+Each output directory that contains managed files gets a `.npmdata` CSV file. Columns: `path`, `packageName`, `packageVersion` — one row per file, no header. This is the source of truth for ownership tracking and clean removal.
 
 ### Key design decisions
 
-- No runtime dependencies beyond `semver` and `minimatch` to keep the consumer install footprint small.
 - File identity is tracked by path + hash, not by timestamp, to be deterministic across machines.
-- The bin script generated by `initPublisher` contains no logic; all behaviour is versioned inside this library.
+- Extract uses a two-phase diff + execute model: compute all changes first, then apply them, enabling conflict detection and rollback before any file is written.
+- The bin shim generated by `npmdata init` contains no logic; all behaviour is versioned inside this library.
 
 ### Dev workflow
 

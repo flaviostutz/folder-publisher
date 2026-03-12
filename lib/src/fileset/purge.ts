@@ -4,13 +4,19 @@ import path from 'node:path';
 import { ManagedFileMetadata, PurgeResult } from '../types';
 import { removeAllSymlinks } from '../package/symlinks';
 
-import { markerPath } from './markers';
+import { markerPath, readMarker, writeMarker } from './markers';
 import { removeFromGitignore } from './gitignore';
 import { MARKER_FILE } from './constants';
 
 /**
  * Purge all managed files in entries from the output directory.
- * Also removes symlinks, empty directories, marker file, and gitignore entries.
+ * Also removes symlinks, empty directories, and cleans up marker / gitignore entries.
+ *
+ * Marker update: only the paths listed in `entries` are removed from the marker.
+ * Entries belonging to other packages that share the same output directory are
+ * preserved. The marker file is deleted only when it becomes empty.
+ *
+ * Gitignore update: only entries for the purged paths are removed.
  *
  * @param outputDir   Absolute path to the output directory.
  * @param entries     List of managed file entries to remove.
@@ -26,7 +32,7 @@ export async function purgeFileset(
 
   if (!fs.existsSync(outputDir)) return result;
 
-  // 1. Delete managed files
+  // 1. Delete managed files from disk
   for (const entry of entries) {
     const fullPath = path.join(outputDir, entry.path);
     if (fs.existsSync(fullPath)) {
@@ -49,20 +55,16 @@ export async function purgeFileset(
     // 3. Remove empty directories bottom-up
     result.dirsRemoved = removeEmptyDirs(outputDir);
 
-    // 4. Remove or update .npmdata marker
-    const marker = markerPath(outputDir);
-    if (fs.existsSync(marker)) {
-      try {
-        fs.chmodSync(marker, 0o644);
-        fs.unlinkSync(marker);
-      } catch {
-        // ignore
-      }
-    }
+    // 4. Update marker: remove only the paths that were part of this purge operation.
+    //    Entries from other packages sharing this output directory are preserved.
+    //    The marker file is deleted automatically by writeMarker when it becomes empty.
+    const purgedPaths = new Set(entries.map((e) => e.path));
+    const currentMarkerEntries = await readMarker(markerPath(outputDir));
+    const updatedMarkerEntries = currentMarkerEntries.filter((e) => !purgedPaths.has(e.path));
+    await writeMarker(markerPath(outputDir), updatedMarkerEntries);
 
-    // 5. Remove gitignore entries
-    const removedPaths = entries.map((e) => e.path);
-    await removeFromGitignore(outputDir, removedPaths);
+    // 5. Remove gitignore entries only for the purged paths
+    await removeFromGitignore(outputDir, [...purgedPaths]);
   }
 
   return result;

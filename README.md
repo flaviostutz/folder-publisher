@@ -10,12 +10,13 @@ npx npmdata extract --packages my-shared-assets@^2.0.0 --output ./data
 ```
 
 ```typescript
-import { extract } from 'npmdata';
+import { actionExtract } from 'npmdata';
+import type { NpmdataExtractEntry } from 'npmdata';
 
-const result = await extract({
-  packages: ['my-shared-assets@^2.0.0'],
-  outputDir: './data',
-});
+const entries: NpmdataExtractEntry[] = [
+  { package: 'my-shared-assets@^2.0.0', output: { path: './data' } },
+];
+const result = await actionExtract({ entries, cwd: process.cwd() });
 console.log(result.added, result.modified, result.deleted);
 ```
 
@@ -170,8 +171,10 @@ D  data/old-file.json
 
 ## Check, list, purge and presets
 
+`check`, `purge`, and `extract` are all **hierarchy-aware**: when a target package carries its own `npmdata.sets` block, the command automatically recurses into those transitive dependencies. See [Hierarchical package resolution](#hierarchical-package-resolution) for the full details.
+
 ```sh
-# verify files are in sync (exit 0 = ok, exit 2 = differences)
+# verify files are in sync (exit 0 = ok, exit 1 = drift or error)
 npx npmdata check --packages my-shared-assets --output ./data
 
 # list all managed files grouped by package
@@ -198,13 +201,14 @@ Each entry in `npmdata.sets` supports:
 | `output.path` | `string` | `.` (cwd) | Extraction directory, relative to where the command runs |
 | `selector.files` | `string[]` | all files | Glob patterns to filter extracted files |
 | `selector.contentRegexes` | `string[]` | none | Regex patterns to filter files by content |
+| `selector.exclude` | `string[]` | none | Glob patterns to exclude files even if they match `selector.files` |
 | `selector.presets` | `string[]` | none | Filters which of the **target package's own** `npmdata.sets` are recursively extracted. Only sets in the target whose `presets` matches are processed. Does not affect which files are selected from the target package itself |
+| `selector.upgrade` | `boolean` | `false` | Force fresh package install even if a satisfying version is already installed |
 | `output.force` | `boolean` | `false` | Overwrite unmanaged or foreign-owned files |
 | `output.keepExisting` | `boolean` | `false` | Skip files that already exist; create them when absent |
 | `output.gitignore` | `boolean` | `true` | Write `.gitignore` alongside managed files |
 | `output.unmanaged` | `boolean` | `false` | Write files without tracking (no marker, no read-only) |
 | `output.dryRun` | `boolean` | `false` | Simulate without writing |
-| `upgrade` | `boolean` | `false` | Force fresh package install |
 | `output.symlinks` | `SymlinkConfig[]` | none | Post-extract symlink operations |
 | `output.contentReplacements` | `ContentReplacementConfig[]` | none | Post-extract content replacements |
 
@@ -229,16 +233,74 @@ Applies regex replacements to workspace files after extraction.
 
 ---
 
+## Hierarchical package resolution
+
+`extract`, `check`, and `purge` are all hierarchy-aware: when a target package carries its own `npmdata.sets` block in its `package.json`, the command automatically recurses into those transitive dependencies.
+
+This lets you build layered data package chains:
+
+```
+consumer project
+  └─ my-org-configs          (npm package with npmdata.sets)
+       ├─ base-datasets       (another npm package with its own files)
+       └─ org-templates       (another npm package with its own files)
+            └─ raw-assets     (leaf package)
+```
+
+Running `npx npmdata extract --packages my-org-configs --output ./data` extracts files from every package in the chain, not just `my-org-configs` itself. Running `check` or `purge` with the same arguments mirrors what `extract` originally covered.
+
+### Output path resolution
+
+Each level’s `output.path` is resolved relative to the caller’s own `output.path`. A package at depth 1 with `output.path: "./configs"` that has a transitive dependency with `output.path: "./shared"` will land at `./configs/shared`.
+
+### Caller overrides (extract only)
+
+When `extract` recurses, the calling entry’s `output` flags are inherited by every transitive dependency, with caller-defined values always winning:
+
+| Caller sets | Effect on transitive entries |
+|---|---|
+| `force: true` | Transitive entries also overwrite unmanaged / foreign files |
+| `dryRun: true` | No files are written anywhere in the hierarchy |
+| `keepExisting: true` | Existing files are skipped at every level |
+| `gitignore: false` | No `.gitignore` entries are created anywhere |
+| `unmanaged: true` | All transitive files are written without a marker or read-only flag |
+| `symlinks` / `contentReplacements` | Appended to each transitive entry’s own lists |
+
+Settings that are undefined on the caller are left as-is so the transitive package’s own defaults apply.
+
+### Filtering transitive sets with `selector.presets`
+
+Set `selector.presets` on an entry to control which sets inside the target package are recursed into (applies to `extract`, `check`, and `purge`). Only sets whose `presets` tag overlaps with the filter are processed; sets with no `presets` are skipped when a filter is active.
+
+```json
+{
+  "npmdata": {
+    "sets": [
+      {
+        "package": "my-org-configs@^2.0.0",
+        "output": { "path": "./data" },
+        "selector": { "presets": ["prod"] }
+      }
+    ]
+  }
+}
+```
+
+### Circular dependency detection
+
+If a package chain references itself, the command stops immediately with an error. Sibling packages — entries already being processed at the same level — are also skipped to prevent double-processing.
+
+---
+
 ## CLI reference
 
 ```
 Usage:
   npx npmdata [init|extract|check|list|purge|presets] [options]
 
-Init:     --files <patterns>    Glob patterns of files to publish (required)
+Init:     --files <patterns>    Glob patterns of files to publish
           --packages <specs>    Additional upstream packages to bundle
-          --no-gitignore        Skip .gitignore entries
-          --unmanaged           Mark all entries as unmanaged
+          --output, -o <dir>    Directory to scaffold into (default: cwd)
 
 Extract:  --packages <specs>    Package specs (omit to read from config file)
           --output, -o <dir>    Output directory (default: cwd)
@@ -280,20 +342,22 @@ Presets:  --config <file>       Explicit config file path (overrides auto-discov
 ## Programmatic API
 
 ```typescript
-import { extract, check, list, purge, initPublisher } from 'npmdata';
-import type { ProgressEvent } from 'npmdata';
+import { actionExtract, actionCheck, actionList, actionPurge } from 'npmdata';
+import type { NpmdataExtractEntry, ProgressEvent } from 'npmdata';
+
+const entries: NpmdataExtractEntry[] = [
+  { package: 'my-shared-assets@^2.0.0', output: { path: './data' } },
+];
+const cwd = process.cwd();
 
 // extract files
-const result = await extract({
-  packages: ['my-shared-assets@^2.0.0'],
-  outputDir: './data',
-});
+const result = await actionExtract({ entries, cwd });
 console.log(result.added, result.modified, result.deleted);
 
 // track progress
-await extract({
-  packages: ['my-shared-assets@^2.0.0'],
-  outputDir: './data',
+await actionExtract({
+  entries,
+  cwd,
   onProgress: (event: ProgressEvent) => {
     if (event.type === 'file-added')    console.log('A', event.file);
     if (event.type === 'file-modified') console.log('M', event.file);
@@ -302,18 +366,20 @@ await extract({
 });
 
 // check sync status
-const status = await check({ packages: ['my-shared-assets'], outputDir: './data' });
-if (!status.ok) {
-  console.log('Missing:', status.differences.missing);
-  console.log('Modified:', status.differences.modified);
+const summary = await actionCheck({ entries, cwd });
+const hasDrift = summary.missing.length > 0 || summary.modified.length > 0 || summary.extra.length > 0;
+if (hasDrift) {
+  console.log('Missing:', summary.missing);
+  console.log('Modified:', summary.modified);
+  console.log('Extra:', summary.extra);
 }
 
 // remove managed files (no network required)
-await purge({ packages: ['my-shared-assets'], outputDir: './data' });
+await actionPurge({ entries, config: null, cwd });
 
 // list managed files
-const managed = list('./data');
-// Array<{ packageName: string; packageVersion: string; files: string[] }>
+const managed = await actionList({ entries, config: null, cwd });
+// ManagedFileMetadata[]: Array<{ path: string; packageName: string; packageVersion: string }>
 ```
 
 ### ProgressEvent
@@ -326,6 +392,19 @@ type ProgressEvent =
   | { type: 'file-modified'; packageName: string; file: string }
   | { type: 'file-deleted';  packageName: string; file: string }
   | { type: 'file-skipped';  packageName: string; file: string };
+```
+
+### postExtractScript
+
+Set `postExtractScript` at the top level of your config to run a shell command after a successful (non-dry-run) `extract`. The full argv of the extract call is appended automatically.
+
+```json
+{
+  "npmdata": {
+    "postExtractScript": "node scripts/post-extract.js",
+    "sets": []
+  }
+}
 ```
 
 ---

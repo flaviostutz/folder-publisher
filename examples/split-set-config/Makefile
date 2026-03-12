@@ -9,10 +9,7 @@ install:
 	pnpm add example-files-package@file:../mypackage/dist/example-files-package-1.0.0.tgz
 	pnpm install --no-frozen-lockfile
 
-test:
-	make clean
-	make install
-
+test: clean install
 	# --- Test 1: split-set extraction from myconfig.json (no 'npmdata' key in package.json) ---
 	# Set 1 extracts .configs/** and docs/** but EXCLUDES .configs/database.config.json
 	# Set 2 extracts ONLY .configs/database.config.json as unmanaged with keepExisting
@@ -38,10 +35,11 @@ test:
 	pnpm exec npmdata check --config myconfig.json
 
 	# --- Test 3: purge removes managed files but leaves the unmanaged file behind ---
-	pnpm exec npmdata purge --config myconfig.json
+	pnpm exec npmdata purge --config myconfig.json --verbose
 	# managed files are removed
 	test ! -e output/.configs/app.config.json
 	test ! -e output/docs/README.md
+	test ! -e output/conf/globals.js
 	# database.config.json is unmanaged, so it survives purge
 	test -e output/.configs/database.config.json
 

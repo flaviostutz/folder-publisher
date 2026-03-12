@@ -1,4 +1,3 @@
-/* eslint-disable unicorn/no-null */
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -21,7 +20,7 @@ afterEach(() => {
 
 describe('actionCheck', () => {
   it('returns empty summary when entries array is empty', async () => {
-    const result = await actionCheck({ entries: [], config: null, cwd: tmpDir });
+    const result = await actionCheck({ entries: [], cwd: tmpDir });
     expect(result.missing).toHaveLength(0);
     expect(result.modified).toHaveLength(0);
     expect(result.extra).toHaveLength(0);
@@ -43,7 +42,7 @@ describe('actionCheck', () => {
       { package: 'check-action-pkg@1.0.0', output: { path: outputDir } },
     ];
 
-    const result = await actionCheck({ entries, config: null, cwd: tmpDir });
+    const result = await actionCheck({ entries, cwd: tmpDir });
     expect(result.missing).toHaveLength(0);
     expect(result.modified).toHaveLength(0);
     expect(result.extra).toHaveLength(0);
@@ -65,7 +64,7 @@ describe('actionCheck', () => {
       { package: 'nonexistent-pkg', output: { path: outputDir } },
     ];
 
-    const result = await actionCheck({ entries, config: null, cwd: tmpDir });
+    const result = await actionCheck({ entries, cwd: tmpDir });
     // nonexistent-pkg is not installed → all marker entries go to missing
     expect(result.missing.length).toBeGreaterThan(0);
   });
@@ -75,7 +74,7 @@ describe('actionCheck', () => {
       { package: 'some-pkg', output: { path: path.join(tmpDir, 'out'), unmanaged: true } },
     ];
 
-    const result = await actionCheck({ entries, config: null, cwd: tmpDir, skipUnmanaged: true });
+    const result = await actionCheck({ entries, cwd: tmpDir, skipUnmanaged: true });
     expect(result.missing).toHaveLength(0);
     expect(result.modified).toHaveLength(0);
     expect(result.extra).toHaveLength(0);
@@ -99,7 +98,7 @@ describe('actionCheck', () => {
       { package: 'multi-pkg@1.0.0', output: { path: outputDir } },
     ];
 
-    const result = await actionCheck({ entries, config: null, cwd: tmpDir });
+    const result = await actionCheck({ entries, cwd: tmpDir });
     // Since hash differs, should be in modified
     expect(result.modified).toContain('a.md');
   }, 60000);
@@ -112,7 +111,6 @@ describe('actionCheck', () => {
 
     await actionCheck({
       entries,
-      config: null,
       cwd: tmpDir,
       onProgress: (e) => events.push(e.type),
     });
@@ -139,7 +137,6 @@ describe('actionCheck', () => {
 
     await actionCheck({
       entries,
-      config: null,
       cwd: tmpDir,
       onProgress: (e) => {
         if ('packageVersion' in e) {
@@ -174,7 +171,7 @@ describe('actionCheck', () => {
       },
     ];
 
-    const result = await actionCheck({ entries, config: null, cwd: tmpDir });
+    const result = await actionCheck({ entries, cwd: tmpDir });
     // With selector matching all files, should be clean
     expect(result.modified).toHaveLength(0);
   }, 60000);
@@ -205,7 +202,7 @@ describe('actionCheck', () => {
     ];
 
     // Check with presets=['docs'] — only the docs entry is checked
-    const resultDocs = await actionCheck({ entries, config: null, cwd: tmpDir, presets: ['docs'] });
+    const resultDocs = await actionCheck({ entries, cwd: tmpDir, presets: ['docs'] });
     expect(resultDocs.missing).toHaveLength(0);
     expect(resultDocs.modified).toHaveLength(0);
     expect(resultDocs.extra).toHaveLength(0);
@@ -214,7 +211,6 @@ describe('actionCheck', () => {
     fs.rmSync(path.join(dataOutput, 'data/sample.csv'));
     const resultDocsOnly = await actionCheck({
       entries,
-      config: null,
       cwd: tmpDir,
       presets: ['docs'],
     });
@@ -224,7 +220,6 @@ describe('actionCheck', () => {
     // Now check with presets=['data'] — the missing data file should be reported
     const resultData = await actionCheck({
       entries,
-      config: null,
       cwd: tmpDir,
       presets: ['data'],
     });
@@ -246,8 +241,66 @@ describe('actionCheck', () => {
     ];
 
     // presets=[] means no filtering — all entries pass through
-    const result = await actionCheck({ entries, config: null, cwd: tmpDir, presets: [] });
+    const result = await actionCheck({ entries, cwd: tmpDir, presets: [] });
     expect(result.missing).toHaveLength(0);
     expect(result.modified).toHaveLength(0);
+  }, 60000);
+
+  it('recursively checks transitive packages declared in npmdata.sets', async () => {
+    // Parent package installed in node_modules with npmdata.sets pointing at a child
+    const parentPkgDir = path.join(tmpDir, 'node_modules', 'recurse-parent');
+    fs.mkdirSync(parentPkgDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(parentPkgDir, 'package.json'),
+      JSON.stringify({
+        name: 'recurse-parent',
+        version: '1.0.0',
+        npmdata: {
+          sets: [
+            {
+              package: 'recurse-child@1.0.0',
+              output: { path: 'child-out' },
+            },
+          ],
+        },
+      }),
+    );
+
+    // Child package installed too
+    const childPkgDir = path.join(tmpDir, 'node_modules', 'recurse-child');
+    fs.mkdirSync(childPkgDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(childPkgDir, 'package.json'),
+      JSON.stringify({ name: 'recurse-child', version: '1.0.0' }),
+    );
+    // Child package has a file that can be checked
+    fs.writeFileSync(path.join(childPkgDir, 'child.md'), 'child content');
+
+    // Parent output dir with a matching file + marker
+    const parentOutputDir = path.join(tmpDir, 'parent-out');
+    fs.mkdirSync(parentOutputDir, { recursive: true });
+    fs.writeFileSync(path.join(parentOutputDir, 'parent.md'), 'parent content');
+    await writeMarker(markerPath(parentOutputDir), [
+      { path: 'parent.md', packageName: 'recurse-parent', packageVersion: '1.0.0' },
+    ]);
+
+    // Child output dir (parent output + child path) — child.md is MISSING on disk
+    const childOutputDir = path.join(tmpDir, 'parent-out', 'child-out');
+    fs.mkdirSync(childOutputDir, { recursive: true });
+    await writeMarker(markerPath(childOutputDir), [
+      { path: 'child.md', packageName: 'recurse-child', packageVersion: '1.0.0' },
+    ]);
+    // Deliberately do NOT write child.md → should appear as missing after check
+
+    const entries: NpmdataExtractEntry[] = [
+      { package: 'recurse-parent@1.0.0', output: { path: parentOutputDir } },
+    ];
+
+    const result = await actionCheck({ entries, cwd: tmpDir });
+
+    // Parent file is present and matching — no drift there
+    expect(result.missing).not.toContain('parent.md');
+    // Child file is missing — recursive check must detect it
+    expect(result.missing).toContain('child.md');
   }, 60000);
 });

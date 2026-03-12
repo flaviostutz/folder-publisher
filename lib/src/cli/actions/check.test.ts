@@ -173,7 +173,6 @@ describe('runCheck — options forwarding', () => {
     await runCheck(CONFIG, [], '/my/cwd');
     const callArg = mockActionCheck.mock.calls[0][0];
     expect(callArg.cwd).toBe('/my/cwd');
-    expect(callArg.config).toBe(CONFIG);
   });
 
   it('passes entries (config sets) to actionCheck', async () => {

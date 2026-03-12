@@ -98,4 +98,36 @@ describe('purgeFileset', () => {
     const result = await purgeFileset(outputDir, [makeEntry('ghost.md')], false);
     expect(result.deleted).toBe(0);
   });
+
+  it('preserves marker entries for other packages when purging only one package', async () => {
+    const outputDir = path.join(tmpDir, 'out');
+    fs.mkdirSync(outputDir, { recursive: true });
+
+    // Two files managed by two different packages share the same output directory
+    fs.writeFileSync(path.join(outputDir, 'pkgA.md'), 'a');
+    fs.writeFileSync(path.join(outputDir, 'pkgB.md'), 'b');
+
+    const entryA: ManagedFileMetadata = { path: 'pkgA.md', packageName: 'pkgA', packageVersion: '1.0.0' };
+    const entryB: ManagedFileMetadata = { path: 'pkgB.md', packageName: 'pkgB', packageVersion: '1.0.0' };
+
+    const mPath = markerPath(outputDir);
+    await writeMarker(mPath, [entryA, entryB]);
+
+    // Purge only pkgA's entries — pkgB's entry must stay in the marker
+    await purgeFileset(outputDir, [entryA], false);
+
+    expect(fs.existsSync(path.join(outputDir, 'pkgA.md'))).toBe(false);
+    expect(fs.existsSync(path.join(outputDir, 'pkgB.md'))).toBe(true);
+
+    // Marker still exists and retains pkgB's entry
+    expect(fs.existsSync(mPath)).toBe(true);
+    const remaining = fs.readFileSync(mPath, 'utf8');
+    expect(remaining).toContain('pkgB.md,pkgB,1.0.0');
+    expect(remaining).not.toContain('pkgA.md');
+
+    // Purge pkgB's entries — marker becomes empty and is deleted
+    await purgeFileset(outputDir, [entryB], false);
+    expect(fs.existsSync(path.join(outputDir, 'pkgB.md'))).toBe(false);
+    expect(fs.existsSync(mPath)).toBe(false);
+  });
 });

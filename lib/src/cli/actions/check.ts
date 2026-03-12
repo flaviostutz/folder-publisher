@@ -32,7 +32,6 @@ export async function runCheck(
 
   const summary = await actionCheck({
     entries,
-    config,
     cwd,
     presets: parsed.presets ?? [],
     verbose: parsed.verbose,

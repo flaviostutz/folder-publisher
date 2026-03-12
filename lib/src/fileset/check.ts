@@ -74,10 +74,14 @@ export async function checkFileset(
     }
   }
 
-  // Find extra files: in filtered package source but never extracted (not in marker)
-  for (const relPath of pkgFiles) {
-    if (!managedByPath.has(relPath)) {
-      result.extra.push(relPath);
+  // Find extra files: in filtered package source but never extracted (not in marker).
+  // Only perform this check when the marker is non-empty; an empty marker means no
+  // extraction has taken place or everything was purged, so there is nothing to drift.
+  if (marker.length > 0) {
+    for (const relPath of pkgFiles) {
+      if (!managedByPath.has(relPath)) {
+        result.extra.push(relPath);
+      }
     }
   }
 

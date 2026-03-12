@@ -148,4 +148,61 @@ describe('actionPurge', () => {
     const fileDeleted = events.find((e) => e.type === 'file-deleted');
     expect(fileDeleted).toBeDefined();
   });
+
+  it('hierarchically purges transitive packages declared in npmdata.sets', async () => {
+    // Simulate a parent package (pkg-parent) installed in node_modules whose
+    // package.json declares npmdata.sets pointing at a child package (pkg-child).
+    const parentPkgDir = path.join(tmpDir, 'node_modules', 'pkg-parent');
+    fs.mkdirSync(parentPkgDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(parentPkgDir, 'package.json'),
+      JSON.stringify({
+        name: 'pkg-parent',
+        version: '1.0.0',
+        npmdata: {
+          sets: [
+            {
+              package: 'pkg-child@1.0.0',
+              output: { path: 'child-out' },
+            },
+          ],
+        },
+      }),
+    );
+
+    // Simulate the child package also installed (so hierarchical recursion can resolve further)
+    const childPkgDir = path.join(tmpDir, 'node_modules', 'pkg-child');
+    fs.mkdirSync(childPkgDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(childPkgDir, 'package.json'),
+      JSON.stringify({ name: 'pkg-child', version: '1.0.0' }),
+    );
+
+    // Parent output dir
+    const parentOutputDir = path.join(tmpDir, 'parent-out');
+    fs.mkdirSync(parentOutputDir, { recursive: true });
+    fs.writeFileSync(path.join(parentOutputDir, 'parent.md'), 'parent content');
+
+    // Child output dir (inherits parent output path joined with child path)
+    const childOutputDir = path.join(tmpDir, 'parent-out', 'child-out');
+    fs.mkdirSync(childOutputDir, { recursive: true });
+    fs.writeFileSync(path.join(childOutputDir, 'child.md'), 'child content');
+
+    await writeMarker(markerPath(parentOutputDir), [
+      { path: 'parent.md', packageName: 'pkg-parent', packageVersion: '1.0.0' },
+    ]);
+    await writeMarker(markerPath(childOutputDir), [
+      { path: 'child.md', packageName: 'pkg-child', packageVersion: '1.0.0' },
+    ]);
+
+    const entries: NpmdataExtractEntry[] = [
+      { package: 'pkg-parent@1.0.0', output: { path: parentOutputDir } },
+    ];
+    const result = await actionPurge({ entries, config: null, cwd: tmpDir });
+
+    // Both parent and child files should have been purged
+    expect(result.deleted).toBe(2);
+    expect(fs.existsSync(path.join(parentOutputDir, 'parent.md'))).toBe(false);
+    expect(fs.existsSync(path.join(childOutputDir, 'child.md'))).toBe(false);
+  });
 });

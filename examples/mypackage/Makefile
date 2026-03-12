@@ -7,6 +7,9 @@ init-publisher: install
 	pnpm exec npmdata init --files "docs/**,data/**,conf/globals.js,.configs/**" --packages eslint@8
 	# add 'eslint' preset tag to the eslint@8 nested set so consumers can filter by preset
 	jq '.npmdata.sets |= map(if .package == "eslint@8" then . + {presets: ["eslint"]} else . end)' package.json > package.json.tmp && mv package.json.tmp package.json
+	# remove conf/globals.js from eslint@8 selector: it is redundant (a copy from the example-files-package entry)
+	# and accidentally matches eslint's own internal conf/globals.js, causing it to be extracted and then orphaned on purge
+	jq '.npmdata.sets |= map(if .package == "eslint@8" then .selector.files |= map(select(. != "conf/globals.js")) else . end)' package.json > package.json.tmp && mv package.json.tmp package.json
 
 build: install
 	rm -rf dist

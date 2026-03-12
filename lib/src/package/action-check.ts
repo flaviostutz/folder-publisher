@@ -1,20 +1,26 @@
 /* eslint-disable no-console */
 
+import fs from 'node:fs';
 import path from 'node:path';
 
-import { NpmdataConfig, NpmdataExtractEntry, ProgressEvent } from '../types';
-import { parsePackageSpec, getInstalledPackagePath, filterEntriesByPresets } from '../utils';
+import { NpmdataExtractEntry, ProgressEvent } from '../types';
+import {
+  parsePackageSpec,
+  getInstalledPackagePath,
+  getInstalledIfSatisfies,
+  filterEntriesByPresets,
+} from '../utils';
 import { readOutputDirMarker } from '../fileset/markers';
 import { checkFileset } from '../fileset/check';
 
 export type CheckOptions = {
   entries: NpmdataExtractEntry[];
-  config: NpmdataConfig | null;
   cwd: string;
   presets?: string[];
   verbose?: boolean;
   onProgress?: (event: ProgressEvent) => void;
   skipUnmanaged?: boolean;
+  visitedPackages?: Set<string>;
 };
 
 export type CheckSummary = {
@@ -29,7 +35,14 @@ export type CheckSummary = {
  */
 // eslint-disable-next-line complexity
 export async function actionCheck(options: CheckOptions): Promise<CheckSummary> {
-  const { entries, cwd, presets = [], verbose = false, onProgress } = options;
+  const {
+    entries,
+    cwd,
+    presets = [],
+    verbose = false,
+    onProgress,
+    visitedPackages = new Set<string>(),
+  } = options;
   const summary: CheckSummary = { missing: [], modified: [], extra: [] };
 
   // Filter by presets (same behaviour as purge)
@@ -91,6 +104,72 @@ export async function actionCheck(options: CheckOptions): Promise<CheckSummary> 
       packageName: pkg.name,
       packageVersion: pkg.version ?? 'latest',
     });
+
+    // Hierarchical check: if the installed package declares npmdata.sets, recurse into them
+    const installedPkgPath = getInstalledIfSatisfies(pkg.name, pkg.version, cwd);
+    if (installedPkgPath) {
+      let pkgNpmdataSets: NpmdataExtractEntry[] | undefined;
+      try {
+        const depPkgJson = JSON.parse(
+          fs.readFileSync(path.join(installedPkgPath, 'package.json')).toString(),
+        ) as { npmdata?: { sets?: NpmdataExtractEntry[] } };
+        pkgNpmdataSets = depPkgJson.npmdata?.sets;
+      } catch (error) {
+        if (verbose) {
+          console.warn(
+            `[verbose] check: could not read npmdata.sets from ${pkg.name}/package.json: ${error}`,
+          );
+        }
+      }
+
+      if (pkgNpmdataSets && pkgNpmdataSets.length > 0) {
+        const siblingNames = new Set(entries.map((e) => parsePackageSpec(e.package).name));
+        const presetFilteredSets = filterEntriesByPresets(
+          pkgNpmdataSets,
+          entry.selector?.presets ?? [],
+        );
+        const filteredSets = presetFilteredSets.filter(
+          (e) =>
+            !siblingNames.has(parsePackageSpec(e.package).name) &&
+            !visitedPackages.has(parsePackageSpec(e.package).name),
+        );
+
+        if (filteredSets.length > 0) {
+          const visitedSet = new Set(visitedPackages);
+          visitedSet.add(pkg.name);
+
+          const outputConfig = entry.output ?? {};
+          const inheritedEntries = filteredSets.map((depEntry) => {
+            const { path: depPath, ...restOutput } = depEntry.output ?? {};
+            return {
+              ...depEntry,
+              output: {
+                ...restOutput,
+                path: path.join(outputConfig.path ?? '.', depPath ?? '.'),
+              },
+            };
+          });
+
+          if (verbose) {
+            console.log(
+              `[verbose] check: recursing into ${filteredSets.length} transitive set(s) from ${pkg.name}`,
+            );
+          }
+
+          const subResult = await actionCheck({
+            entries: inheritedEntries,
+            cwd,
+            presets,
+            verbose,
+            onProgress,
+            visitedPackages: visitedSet,
+          });
+          summary.missing.push(...subResult.missing);
+          summary.modified.push(...subResult.modified);
+          summary.extra.push(...subResult.extra);
+        }
+      }
+    }
   }
 
   return summary;
