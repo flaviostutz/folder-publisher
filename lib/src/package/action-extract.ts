@@ -117,8 +117,13 @@ export async function actionExtract(options: ExtractOptions): Promise<ExtractRes
           version: string;
         };
         installedVersion = pkgJsonContent.version;
-      } catch {
+      } catch (error) {
         // fallback
+        if (verbose) {
+          console.warn(
+            `[verbose] extract: could not read version from ${pkg.name}/package.json, defaulting to 0.0.0: ${error}`,
+          );
+        }
       }
 
       // Remove stale symlinks before diff
@@ -148,6 +153,11 @@ export async function actionExtract(options: ExtractOptions): Promise<ExtractRes
       // Phase 4: Abort on conflicts (unless force or unmanaged)
       if (extractionMap.conflicts.length > 0 && !outputConfig.force && !outputConfig.unmanaged) {
         const conflictPaths = extractionMap.conflicts.map((c) => c.relPath).join(', ');
+        if (verbose) {
+          console.warn(
+            `[verbose] extract: aborting due to ${extractionMap.conflicts.length} conflict(s) in ${outputDir}: ${conflictPaths}`,
+          );
+        }
         throw new Error(
           `Conflict: the following files exist and are not managed by npmdata: ${conflictPaths}. ` +
             `Use --force to overwrite or --unmanaged to skip.`,
@@ -155,6 +165,13 @@ export async function actionExtract(options: ExtractOptions): Promise<ExtractRes
       }
 
       // Phase 5: Execute phase (disk writes)
+
+      if (verbose) {
+        console.log(
+          `[verbose] extract: diff result for ${pkg.name}: +${extractionMap.toAdd.length} ~${extractionMap.toModify.length} -${extractionMap.toDelete.length} skip=${extractionMap.toSkip.length} conflicts=${extractionMap.conflicts.length}`,
+        );
+        console.log(`[verbose] extract: executing disk writes for ${pkg.name} in ${outputDir}`);
+      }
 
       const executeResult = await execute(
         extractionMap,
@@ -164,6 +181,7 @@ export async function actionExtract(options: ExtractOptions): Promise<ExtractRes
         installedVersion,
         existingMarker,
         cwd,
+        verbose,
       );
 
       // Collect newly created files for potential rollback
@@ -201,8 +219,13 @@ export async function actionExtract(options: ExtractOptions): Promise<ExtractRes
           npmdata?: { sets?: NpmdataExtractEntry[] };
         };
         pkgNpmdataSets = depPkgJson.npmdata?.sets;
-      } catch {
+      } catch (error) {
         // No package.json or no npmdata.sets
+        if (verbose) {
+          console.warn(
+            `[verbose] extract: could not read npmdata.sets from ${pkg.name}/package.json: ${error}`,
+          );
+        }
       }
 
       if (pkgNpmdataSets && pkgNpmdataSets.length > 0) {
@@ -254,6 +277,11 @@ export async function actionExtract(options: ExtractOptions): Promise<ExtractRes
             };
           });
 
+          if (verbose) {
+            console.log(
+              `[verbose] extract: recursing into ${filteredSets.length} transitive set(s) from ${pkg.name}`,
+            );
+          }
           const subResult = await actionExtract({
             entries: inheritedEntries,
             config,
@@ -282,13 +310,21 @@ export async function actionExtract(options: ExtractOptions): Promise<ExtractRes
     }
 
     // Deferred deletions: delete after all filesets have been processed
-    await deleteFiles(deferredDeletes);
+    if (verbose && deferredDeletes.length > 0) {
+      console.log(`[verbose] extract: performing ${deferredDeletes.length} deferred deletion(s)`);
+    }
+    await deleteFiles(deferredDeletes, verbose);
     result.deleted += deferredDeletes.length;
 
     // cleanup temp package.json and node_module if was created just for this extraction
     cleanupTempPackageJson(cwd, verbose);
   } catch (error) {
     // Partial rollback: delete only newly created files
+    if (verbose) {
+      console.error(
+        `[verbose] extract: error encountered, rolling back ${allNewlyCreated.length} newly created file(s): ${error}`,
+      );
+    }
     await rollback(allNewlyCreated);
     throw error;
   }

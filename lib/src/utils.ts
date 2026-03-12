@@ -119,7 +119,19 @@ async function runPackageManagerCommand(
     throw new Error(`Could not resolve "${commandType}" command for package manager "${agent}"`);
   }
 
-  spawnWithLog(resolved.command, resolved.args, workDir, verbose, true);
+  const extraArgs: string[] = [];
+
+  // Always install as a dev dependency
+  if (commandType === 'add') {
+    extraArgs.push(agent === 'deno' ? '-d' : '-D');
+  }
+
+  // pnpm in a workspace root requires --workspace-root so it doesn't refuse to install
+  if (agent === 'pnpm' && fs.existsSync(path.join(workDir, 'pnpm-workspace.yaml'))) {
+    extraArgs.push('--workspace-root');
+  }
+
+  spawnWithLog(resolved.command, [...resolved.args, ...extraArgs], workDir, verbose, true);
 }
 
 /**
@@ -141,6 +153,11 @@ export async function installOrUpgradePackage(
   if (!upgrade) {
     const cached = getInstalledIfSatisfies(name, version, workDir);
     if (cached) {
+      if (verbose) {
+        console.log(
+          `[verbose] installOrUpgrade: cache hit for ${name}@${version ?? 'latest'} at ${cached}`,
+        );
+      }
       return cached;
     }
   }
@@ -149,6 +166,11 @@ export async function installOrUpgradePackage(
   // this happens when npmdata is used as npx without a package.json in the current directory, for example
   const pkgJsonPath = path.join(workDir, 'package.json');
   if (!fs.existsSync(pkgJsonPath)) {
+    if (verbose) {
+      console.log(
+        `[verbose] installOrUpgrade: no package.json found in ${workDir}, initializing one`,
+      );
+    }
     initTempPackageJson(workDir, verbose);
 
     // reinstall itself to ensure it's present in node_modules for later use (e.g. to access its own package.json)
@@ -159,6 +181,11 @@ export async function installOrUpgradePackage(
       version: string;
     };
     const selfSpec = `${selfPkg.name}@${selfPkg.version}`;
+    if (verbose) {
+      console.log(
+        `[verbose] installOrUpgrade: reinstalling self (${selfSpec}) in dir ${workDir} to ensure it's available for this extraction`,
+      );
+    }
     await runPackageManagerCommand(selfSpec, 'add', workDir);
   }
 
@@ -173,9 +200,19 @@ export async function installOrUpgradePackage(
   if (!fs.existsSync(pkgPath)) {
     // Fall back to Node.js module resolution, which handles pnpm workspaces where the
     // package may be installed in the workspace root's node_modules rather than locally.
+    if (verbose) {
+      console.warn(
+        `[verbose] installOrUpgrade: ${pkgPath} not found, trying require.resolve fallback`,
+      );
+    }
     try {
       const resolved = require.resolve(`${name}/package.json`, { paths: [workDir] });
       pkgPath = path.dirname(resolved);
+      if (verbose) {
+        console.log(
+          `[verbose] installOrUpgrade: resolved ${name} via require.resolve to ${pkgPath}`,
+        );
+      }
     } catch {
       throw new Error(
         `Package "${name}" was not found at "${path.join(workDir, 'node_modules', name)}" after installation. ` +

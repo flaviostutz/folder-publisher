@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -39,8 +40,9 @@ export async function execute(
   pkg: PackageConfig,
   pkgVersion: string,
   existingMarker: ManagedFileMetadata[],
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+
   _cwd?: string,
+  verbose?: boolean,
 ): Promise<ExecuteResult> {
   const dryRun = outputConfig.dryRun ?? false;
   const unmanaged = outputConfig.unmanaged ?? false;
@@ -56,6 +58,9 @@ export async function execute(
 
   // Write toAdd files
   for (const op of map.toAdd) {
+    if (verbose) {
+      console.log(`[verbose] execute: adding file ${op.relPath} -> ${op.destPath}`);
+    }
     if (!dryRun) {
       ensureDir(path.dirname(op.destPath));
       // Make writable if it exists (should be rare for toAdd, but defensive)
@@ -73,6 +78,9 @@ export async function execute(
 
   // Write toModify files
   for (const op of map.toModify) {
+    if (verbose) {
+      console.log(`[verbose] execute: modifying file ${op.relPath} -> ${op.destPath}`);
+    }
     if (!dryRun) {
       ensureDir(path.dirname(op.destPath));
       if (fs.existsSync(op.destPath)) {
@@ -112,17 +120,31 @@ export async function execute(
       });
     }
 
+    if (verbose) {
+      console.log(
+        `[verbose] execute: writing marker file at ${marker} (${updatedEntries.length} entries)`,
+      );
+    }
     await writeMarker(marker, updatedEntries);
 
     if (updateGitignore) {
       const managedPaths = updatedEntries.map((m) => m.path);
-
+      if (verbose) {
+        console.log(
+          `[verbose] execute: updating .gitignore at ${outputDir} (${managedPaths.length} paths)`,
+        );
+      }
       await addToGitignore(outputDir, managedPaths);
     }
   }
 
   // Apply content replacements
   if (!dryRun && outputConfig.contentReplacements && outputConfig.contentReplacements.length > 0) {
+    if (verbose) {
+      console.log(
+        `[verbose] execute: applying ${outputConfig.contentReplacements.length} content replacement(s) in ${outputDir}`,
+      );
+    }
     await applyContentReplacements(outputDir, outputConfig.contentReplacements);
   }
 
@@ -133,14 +155,20 @@ export async function execute(
  * Delete a list of files from disk and make them writable first.
  * Used for deferred deletions after all filesets have been processed.
  */
-export async function deleteFiles(filePaths: string[]): Promise<void> {
+export async function deleteFiles(filePaths: string[], verbose?: boolean): Promise<void> {
   for (const filePath of filePaths) {
     if (!fs.existsSync(filePath)) continue;
+    if (verbose) {
+      console.log(`[verbose] execute: deleting file ${filePath}`);
+    }
     try {
       fs.chmodSync(filePath, 0o644);
       fs.unlinkSync(filePath);
-    } catch {
+    } catch (error) {
       // Ignore errors for files that could not be deleted
+      if (verbose) {
+        console.error(`[verbose] execute: failed to delete ${filePath}: ${error}`);
+      }
     }
   }
 }

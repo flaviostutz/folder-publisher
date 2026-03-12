@@ -6,6 +6,8 @@ import os from 'node:os';
 import childProcess from 'node:child_process';
 import path from 'node:path';
 
+import { detect } from 'package-manager-detector/detect';
+
 import {
   parsePackageSpec,
   hashFile,
@@ -20,6 +22,8 @@ import {
   initTempPackageJson,
   cleanupTempPackageJson,
 } from './utils';
+
+jest.mock('package-manager-detector/detect');
 
 describe('parsePackageSpec', () => {
   it('parses a plain package name', () => {
@@ -565,6 +569,131 @@ describe('installPackage', () => {
         );
       } finally {
         spy.mockRestore();
+      }
+    });
+  });
+
+  describe('dev dependency flag', () => {
+    it('adds -D to add command args for non-Deno package managers', async () => {
+      jest
+        .mocked(detect)
+        .mockResolvedValue({ agent: 'npm', name: 'npm', version: null } as unknown as ReturnType<
+          Awaited<typeof detect>
+        >);
+      fs.writeFileSync(
+        path.join(tmpDir, 'package.json'),
+        JSON.stringify({ name: 'existing', version: '1.0.0', private: true }),
+      );
+      const calls: { command: string; args: string[] }[] = [];
+      const spy = jest.spyOn(childProcess, 'spawnSync').mockImplementation((cmd, args) => {
+        calls.push({ command: cmd as string, args: (args ?? []) as string[] });
+        return { pid: 0, output: [], stdout: '', stderr: '', status: 0, signal: null };
+      });
+      try {
+        await expect(installOrUpgradePackage('some-pkg', '1.0.0', true, tmpDir)).rejects.toThrow();
+        // The add call should carry -D; the upgrade call should not
+        expect(calls[0].args).toContain('-D');
+        expect(calls[1].args).not.toContain('-D');
+      } finally {
+        spy.mockRestore();
+        jest.mocked(detect).mockReset();
+      }
+    });
+
+    it('adds -d (not -D) to add command args for Deno', async () => {
+      jest
+        .mocked(detect)
+        .mockResolvedValue({ agent: 'deno', name: 'deno', version: null } as unknown as ReturnType<
+          Awaited<typeof detect>
+        >);
+      fs.writeFileSync(
+        path.join(tmpDir, 'package.json'),
+        JSON.stringify({ name: 'existing', version: '1.0.0', private: true }),
+      );
+      const calls: { command: string; args: string[] }[] = [];
+      const spy = jest.spyOn(childProcess, 'spawnSync').mockImplementation((cmd, args) => {
+        calls.push({ command: cmd as string, args: (args ?? []) as string[] });
+        return { pid: 0, output: [], stdout: '', stderr: '', status: 0, signal: null };
+      });
+      try {
+        await expect(installOrUpgradePackage('some-pkg', '1.0.0', true, tmpDir)).rejects.toThrow();
+        expect(calls[0].args).toContain('-d');
+        expect(calls[0].args).not.toContain('-D');
+      } finally {
+        spy.mockRestore();
+        jest.mocked(detect).mockReset();
+      }
+    });
+  });
+
+  describe('pnpm workspace root', () => {
+    it('adds --workspace-root when pnpm is detected and pnpm-workspace.yaml exists', async () => {
+      jest.mocked(detect).mockResolvedValue({ agent: 'pnpm', name: 'pnpm', version: null } as any);
+      fs.writeFileSync(
+        path.join(tmpDir, 'package.json'),
+        JSON.stringify({ name: 'existing', version: '1.0.0', private: true }),
+      );
+      fs.writeFileSync(path.join(tmpDir, 'pnpm-workspace.yaml'), 'packages:\n  - .\n');
+      const calls: { command: string; args: string[] }[] = [];
+      const spy = jest.spyOn(childProcess, 'spawnSync').mockImplementation((cmd, args) => {
+        calls.push({ command: cmd as string, args: (args ?? []) as string[] });
+        return { pid: 0, output: [], stdout: '', stderr: '', status: 0, signal: null };
+      });
+      try {
+        await expect(installOrUpgradePackage('some-pkg', '1.0.0', true, tmpDir)).rejects.toThrow();
+        expect(calls[0].args).toContain('--workspace-root');
+      } finally {
+        spy.mockRestore();
+        jest.mocked(detect).mockReset();
+      }
+    });
+
+    it('does not add --workspace-root when pnpm-workspace.yaml is absent', async () => {
+      jest
+        .mocked(detect)
+        .mockResolvedValue({ agent: 'pnpm', name: 'pnpm', version: null } as unknown as ReturnType<
+          Awaited<typeof detect>
+        >);
+      fs.writeFileSync(
+        path.join(tmpDir, 'package.json'),
+        JSON.stringify({ name: 'existing', version: '1.0.0', private: true }),
+      );
+      const calls: { command: string; args: string[] }[] = [];
+      const spy = jest.spyOn(childProcess, 'spawnSync').mockImplementation((cmd, args) => {
+        calls.push({ command: cmd as string, args: (args ?? []) as string[] });
+        return { pid: 0, output: [], stdout: '', stderr: '', status: 0, signal: null };
+      });
+      try {
+        await expect(installOrUpgradePackage('some-pkg', '1.0.0', true, tmpDir)).rejects.toThrow();
+        expect(calls[0].args).not.toContain('--workspace-root');
+      } finally {
+        spy.mockRestore();
+        jest.mocked(detect).mockReset();
+      }
+    });
+
+    it('does not add --workspace-root when npm is used even if pnpm-workspace.yaml exists', async () => {
+      jest
+        .mocked(detect)
+        .mockResolvedValue({ agent: 'npm', name: 'npm', version: null } as unknown as ReturnType<
+          Awaited<typeof detect>
+        >);
+      fs.writeFileSync(
+        path.join(tmpDir, 'package.json'),
+        JSON.stringify({ name: 'existing', version: '1.0.0', private: true }),
+      );
+      fs.writeFileSync(path.join(tmpDir, 'pnpm-workspace.yaml'), 'packages:\n  - .\n');
+      const calls: { command: string; args: string[] }[] = [];
+      const spy = jest.spyOn(childProcess, 'spawnSync').mockImplementation((cmd, args) => {
+        calls.push({ command: cmd as string, args: (args ?? []) as string[] });
+        return { pid: 0, output: [], stdout: '', stderr: '', status: 0, signal: null };
+      });
+      try {
+        await expect(installOrUpgradePackage('some-pkg', '1.0.0', true, tmpDir)).rejects.toThrow();
+        expect(calls[0].args).not.toContain('--workspace-root');
+      } finally {
+        spy.mockRestore();
+        jest.mocked(detect).mockReset();
       }
     });
   });
