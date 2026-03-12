@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.15.6 (2026-03-12)
+
+### Maintenance
+
+* release: 0.15.5 [[b524503](https://github.com/flaviostutz/npmdata/commit/b524503e6f9f71df12651a5539425ab601e92583)]
+* fix verbose and spawn shell without arguments [[d1dd945](https://github.com/flaviostutz/npmdata/commit/d1dd945eebd42df6d6d2d315cd61f7377e28aae9)]
+* improve tests [[5dfaa3d](https://github.com/flaviostutz/npmdata/commit/5dfaa3d371988e7ac8ff5d8896390041837b4ce1)]
+
+### Misc
+
+
+### Info
+
+* Authors: Flavio Stutz <flaviostutz@gmail.com>
+
+
 ## 0.15.5 (2026-03-12)
 
 ### Maintenance
