@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.15.2 (2026-03-11)
+
+### Maintenance
+
+* release: 0.15.1 [[bda22f7](https://github.com/flaviostutz/npmdata/commit/bda22f79f8935e06728d175e0577628886593c80)]
+* default exclude is appended to passed exclude [[eda55e9](https://github.com/flaviostutz/npmdata/commit/eda55e979d5571ddbb39c44680e10d73703726dd)]
+* log more on error [[e2ac2b4](https://github.com/flaviostutz/npmdata/commit/e2ac2b47497a735fa1dae10c754ba8323a71f5ed)]
+
+### Misc
+
+
+### Info
+
+* Authors: Flavio Stutz <flaviostutz@gmail.com>
+
+
 ## 0.15.1 (2026-03-11)
 
 ### Maintenance
