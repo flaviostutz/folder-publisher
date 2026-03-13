@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.18.1 (2026-03-13)
+
+### Maintenance
+
+* release: 0.18.0 [[1d65d46](https://github.com/flaviostutz/npmdata/commit/1d65d46f95b1fcbdf00c6846e58d4d82eb20f27d)]
+* add jest types to dev deps [[72eddc8](https://github.com/flaviostutz/npmdata/commit/72eddc8536f64b220a765201ccd6a6733d6a0b9c)]
+* removing specs [[90c2077](https://github.com/flaviostutz/npmdata/commit/90c20770f6c3e93c786ef772ab595953eb66066d)]
+
+### Misc
+
+
+### Info
+
+* Authors: Flavio Stutz <flaviostutz@gmail.com>
+
+
 ## 0.18.0 (2026-03-13)
 
 ### Features
