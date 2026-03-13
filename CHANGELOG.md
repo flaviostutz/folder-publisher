@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.18.0 (2026-03-13)
+
+### Features
+
+* change marker to pipe [[d6dcb78](https://github.com/flaviostutz/npmdata/commit/d6dcb7825527fcbfc32760e7f11de68182c9636c)]
+
+### Maintenance
+
+* release: 0.17.0 [[85cd1c7](https://github.com/flaviostutz/npmdata/commit/85cd1c79f8c78dfe0eedad8ad20b118c9f8fa75b)]
+* add jest types to dev deps [[72eddc8](https://github.com/flaviostutz/npmdata/commit/72eddc8536f64b220a765201ccd6a6733d6a0b9c)]
+* fix tool versions [[629a2da](https://github.com/flaviostutz/npmdata/commit/629a2da069188e955444eec73487ed797779cc1f)]
+
+### Misc
+
+
+### Info
+
+* Authors: Flavio Stutz <flaviostutz@gmail.com>
+
+
 ## 0.17.0 (2026-03-12)
 
 ### Features
