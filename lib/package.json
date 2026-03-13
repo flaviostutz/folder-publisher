@@ -24,6 +24,7 @@
   "homepage": "https://github.com/flaviostutz/npmdata#readme",
   "devDependencies": {
     "@babel/preset-typescript": "^7.21.0",
+    "@jest/globals": "^30.3.0",
     "@stutzlab/eslint-config": "^4.2.1",
     "@tsconfig/node20": "^20.1.4",
     "@types/archiver": "^6.0.2",
