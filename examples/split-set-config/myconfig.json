@@ -29,18 +29,6 @@
         "managed": false,
         "keepExisting": true
       }
-    },
-    {
-      "package": "eslint@8",
-      "selector": {
-        "files": [
-          "conf/config-schema.js"
-        ]
-      },
-      "output": {
-        "path": "output",
-        "managed": false
-      }
     }
   ]
 }

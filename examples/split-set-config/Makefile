@@ -21,8 +21,18 @@ test: clean install
 	test -e output/.configs/database.config.json
 	# eslint@8 conf/config-schema.js is extracted but managed=false (set 3)
 	test -e output/conf/config-schema.js
-
+	# temper with config-schema and because it's not managed, check should pass
+	echo "custom local content" > output/conf/config-schema.js
 	# check: all managed files should be in sync
+	pnpm exec npmdata check --config myconfig.json
+
+	# temper with managed file and check should fail
+	chmod +w output/docs/adrs/adr-001-sample1.md
+	echo "custom local content" > output/docs/adrs/adr-001-sample1.md
+	! pnpm exec npmdata check --config myconfig.json
+
+	# restore the file and check should pass again
+	pnpm exec npmdata extract --config myconfig.json
 	pnpm exec npmdata check --config myconfig.json
 
 	# --- Test 2: keepExisting prevents overwriting a pre-existing file ---
