@@ -118,7 +118,10 @@ export async function actionCheck(options: CheckOptions): Promise<CheckSummary> 
 
       if (pkgNpmdataSets && pkgNpmdataSets.length > 0) {
         const siblingNames = new Set(entries.map((e) => parsePackageSpec(e.package).name));
-        const presetFilteredSets = filterEntriesByPresets(pkgNpmdataSets, entry.selector?.presets ?? entry.presets);
+        const presetFilteredSets = filterEntriesByPresets(
+          pkgNpmdataSets,
+          entry.selector?.presets ?? entry.presets,
+        );
         const filteredSets = presetFilteredSets.filter(
           (e) =>
             !siblingNames.has(parsePackageSpec(e.package).name) &&
