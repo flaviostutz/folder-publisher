@@ -1,7 +1,7 @@
 /* eslint-disable no-console */
 import path from 'node:path';
 
-import { loadNpmdataConfig, loadNpmdataConfigFile } from '../package/config';
+import { searchAndLoadNpmdataConfig, loadNpmdataConfigFile } from '../package/config';
 import { NpmdataConfig } from '../types';
 
 import { printUsage, printVersion } from './usage';
@@ -20,9 +20,9 @@ const KNOWN_COMMANDS = new Set(['extract', 'check', 'list', 'purge', 'init', 'pr
  *
  * @param argv      - Process argument vector (argv[0] = node, argv[1] = script).
  * @param cwd       - Working directory for output path resolution (defaults to process.cwd()).
- * @param configCwd - Directory to search for npmdata config (defaults to cwd).
+ * @param configSearchCwd - Directory to search for npmdata config (defaults to cwd).
  */
-export async function cli(argv: string[], cwd?: string, configCwd?: string): Promise<number> {
+export async function cli(argv: string[], cwd?: string, configSearchCwd?: string): Promise<number> {
   const args = argv.slice(2); // strip node + script
 
   // Handle global --help with no command
@@ -51,9 +51,8 @@ export async function cli(argv: string[], cwd?: string, configCwd?: string): Pro
     cmdArgs = args;
   }
 
-  // Load config from cwd, unless --packages is specified (CLI-only mode)
   const effectiveCwd = cwd ?? process.cwd();
-  const effectiveConfigCwd = configCwd ?? effectiveCwd;
+  const effectiveConfigSearchCwd = configSearchCwd ?? effectiveCwd;
 
   // Detect --config from full args (works regardless of position relative to command)
   const configFlagIdx = args.indexOf('--config');
@@ -63,11 +62,17 @@ export async function cli(argv: string[], cwd?: string, configCwd?: string): Pro
       : // eslint-disable-next-line no-undefined
         undefined;
 
-  let config: Awaited<ReturnType<typeof loadNpmdataConfig>>;
+  // Load config from cwd, unless --packages is specified (CLI-only mode)
+  const packagesSpecified = args.includes('--packages');
+
+  let config: Awaited<ReturnType<typeof searchAndLoadNpmdataConfig>>;
   if (configFilePath) {
     config = await loadNpmdataConfigFile(path.resolve(effectiveCwd, configFilePath));
+  } else if (packagesSpecified) {
+    // eslint-disable-next-line unicorn/no-null
+    config = null;
   } else {
-    config = await loadNpmdataConfig(effectiveConfigCwd);
+    config = await searchAndLoadNpmdataConfig(effectiveConfigSearchCwd);
   }
 
   try {

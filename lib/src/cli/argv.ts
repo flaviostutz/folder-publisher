@@ -17,6 +17,7 @@ export type ParsedArgv = {
   packages?: PackageConfig[];
   output?: string;
   files?: string[];
+  exclude?: string[];
   contentRegexes?: string[];
   presets?: string[];
   configFile?: string;
@@ -81,6 +82,7 @@ export function parseArgv(argv: string[]): ParsedArgv {
     packages,
     output: getValue('--output', '-o'),
     files: getCommaSplit('--files'),
+    exclude: getCommaSplit('--exclude'),
     contentRegexes: getCommaSplit('--content-regex'),
     presets: getCommaSplit('--presets'),
     configFile: getValue('--config'),
@@ -107,6 +109,7 @@ export function buildEntriesFromArgv(parsed: ParsedArgv): NpmdataExtractEntry[] 
 
   const selector: SelectorConfig = {};
   if (parsed.files) selector.files = parsed.files;
+  if (parsed.exclude) selector.exclude = parsed.exclude;
   if (parsed.contentRegexes) selector.contentRegexes = parsed.contentRegexes;
   // In ad-hoc --packages mode there is no entry-level presets tag, so we place
   // --presets into selector.presets. filterEntriesByPresets checks both fields,
@@ -157,6 +160,7 @@ export function applyArgvOverrides(
     const updatedSelector: SelectorConfig = {
       ...entry.selector,
       ...(parsed.files ? { files: parsed.files } : {}),
+      ...(parsed.exclude ? { exclude: parsed.exclude } : {}),
       ...(parsed.contentRegexes ? { contentRegexes: parsed.contentRegexes } : {}),
       ...(parsed.upgrade !== undefined ? { upgrade: parsed.upgrade } : {}),
     };

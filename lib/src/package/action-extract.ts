@@ -21,6 +21,10 @@ import { createSymlinks, removeStaleSymlinks } from './symlinks';
 export type ExtractOptions = BasicPackageOptions & {
   onProgress?: (event: ProgressEvent) => void;
   visitedPackages?: Set<string>;
+  /** Pre-installed package paths (name → absolute path). Used to route self-referencing
+   * nested sets through the normal recursion without reinstalling or tripping the
+   * circular-dependency guard. */
+  installedPkgPaths?: Map<string, string>;
 };
 
 export type ExtractResult = {
@@ -36,7 +40,14 @@ export type ExtractResult = {
  */
 // eslint-disable-next-line complexity
 export async function actionExtract(options: ExtractOptions): Promise<ExtractResult> {
-  const { entries, cwd, verbose, onProgress, visitedPackages = new Set<string>() } = options;
+  const {
+    entries,
+    cwd,
+    verbose,
+    onProgress,
+    visitedPackages = new Set<string>(),
+    installedPkgPaths,
+  } = options;
 
   if (verbose) {
     console.log(
@@ -60,8 +71,9 @@ export async function actionExtract(options: ExtractOptions): Promise<ExtractRes
       }
       const pkg = parsePackageSpec(entry.package);
 
-      // Circular dependency detection
-      if (visitedPackages.has(pkg.name)) {
+      // Circular dependency detection. Pre-installed packages (self-referencing sets passed
+      // via installedPkgPaths) are exempt — they are already resolved, not truly circular.
+      if (visitedPackages.has(pkg.name) && !installedPkgPaths?.has(pkg.name)) {
         throw new Error(
           `Circular dependency detected: package "${pkg.name}" is already being extracted`,
         );
@@ -78,11 +90,15 @@ export async function actionExtract(options: ExtractOptions): Promise<ExtractRes
         packageVersion: pkg.version ?? 'latest',
       });
 
-      // Phase 1: Install package
+      // Phase 1: Install package (or reuse pre-installed path for self-referencing sets)
       const upgrade = selector.upgrade ?? false;
       const alreadyCached =
-        !upgrade && getInstalledIfSatisfies(pkg.name, pkg.version, cwd) !== null;
-      const pkgPath = await installOrUpgradePackage(pkg.name, pkg.version, upgrade, cwd, verbose);
+        !upgrade &&
+        (installedPkgPaths?.has(pkg.name) ||
+          getInstalledIfSatisfies(pkg.name, pkg.version, cwd) !== null);
+      const pkgPath =
+        installedPkgPaths?.get(pkg.name) ??
+        (await installOrUpgradePackage(pkg.name, pkg.version, upgrade, cwd, verbose));
 
       if (verbose) {
         let status = 'installed';
@@ -254,11 +270,27 @@ export async function actionExtract(options: ExtractOptions): Promise<ExtractRes
           );
         }
 
-        const filteredSets = presetFilteredSets.filter(
+        // Self-referencing sets (same package, explicit selector.files) define which of the
+        // current package's own files belong to each preset. They are safe to recurse into:
+        // we pass installedPkgPaths with the current pkgPath so the recursive call reuses it
+        // without reinstalling and without tripping the circular-dependency guard.
+        const selfRefSets =
+          selector.presets && selector.presets.length > 0
+            ? presetFilteredSets.filter(
+                (e) =>
+                  parsePackageSpec(e.package).name === pkg.name &&
+                  e.selector?.files &&
+                  e.selector.files.length > 0,
+              )
+            : [];
+
+        const externalSets = presetFilteredSets.filter(
           (e) =>
             !siblingNames.has(parsePackageSpec(e.package).name) &&
             !visitedPackages.has(parsePackageSpec(e.package).name),
         );
+
+        const filteredSets = [...selfRefSets, ...externalSets];
 
         if (
           selector.presets &&
@@ -274,6 +306,11 @@ export async function actionExtract(options: ExtractOptions): Promise<ExtractRes
         if (filteredSets.length > 0) {
           const visitedSet = new Set(visitedPackages);
           visitedSet.add(pkg.name);
+
+          // Pass the current pkgPath for self-referencing sets so the recursive call skips
+          // reinstallation and bypasses the circular-dependency guard.
+          const preInstalled = new Map(installedPkgPaths ?? []);
+          if (selfRefSets.length > 0) preInstalled.set(pkg.name, pkgPath);
 
           // Inherit caller overrides (force, dryRun, keepExisting, gitignore, managed) from current entry.
           // Caller-defined (non-undefined) values always take precedence; undefined propagates as-is
@@ -303,7 +340,7 @@ export async function actionExtract(options: ExtractOptions): Promise<ExtractRes
 
           if (verbose) {
             console.log(
-              `[verbose] extract: recursing into ${filteredSets.length} transitive set(s) from ${pkg.name}`,
+              `[verbose] extract: recursing into ${filteredSets.length} set(s) from ${pkg.name} (${selfRefSets.length} self-ref, ${externalSets.length} external)`,
             );
           }
           const subResult = await actionExtract({
@@ -312,6 +349,7 @@ export async function actionExtract(options: ExtractOptions): Promise<ExtractRes
             verbose,
             onProgress,
             visitedPackages: visitedSet,
+            installedPkgPaths: preInstalled,
           });
           result.added += subResult.added;
           result.modified += subResult.modified;

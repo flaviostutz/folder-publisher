@@ -284,6 +284,118 @@ describe('actionExtract', () => {
     expect(fs.existsSync(path.join(outputDir, 'nested', 'data', 'sample.csv'))).toBe(false);
   }, 90000);
 
+  it('extracts self-referencing npmdata.sets inline when selector.presets is active', async () => {
+    // Simulates a self-installable (binpkg) data-package that declares which of its own files
+    // belong to each preset via self-referencing npmdata.sets entries.
+    await installMockPackage(
+      'self-ref-pkg',
+      '1.0.0',
+      {
+        'docs/guide.md': '# Guide',
+        'data/sample.csv': 'a,b',
+        'conf/settings.json': '{}',
+      },
+      tmpDir,
+    );
+
+    // Add self-referencing npmdata.sets to the installed package's package.json
+    const pkgJsonPath = path.join(tmpDir, 'node_modules', 'self-ref-pkg', 'package.json');
+    const existing = JSON.parse(fs.readFileSync(pkgJsonPath).toString()) as object;
+    fs.writeFileSync(
+      pkgJsonPath,
+      JSON.stringify({
+        ...existing,
+        npmdata: {
+          sets: [
+            {
+              package: 'self-ref-pkg',
+              presets: ['docs'],
+              selector: { files: ['docs/**'] },
+              output: { path: '.', gitignore: false },
+            },
+            {
+              package: 'self-ref-pkg',
+              presets: ['data'],
+              selector: { files: ['data/**'] },
+              output: { path: '.', gitignore: false },
+            },
+          ],
+        },
+      }),
+    );
+
+    const outputDir = path.join(tmpDir, 'output');
+
+    // Extracting with 'docs' preset should only pull docs/** via the self-ref set
+    const result = await actionExtract({
+      entries: [
+        {
+          package: 'self-ref-pkg',
+          selector: { presets: ['docs'] },
+          output: { path: outputDir, gitignore: false },
+        },
+      ],
+      cwd: tmpDir,
+    });
+
+    expect(result.added).toBe(1);
+    expect(fs.existsSync(path.join(outputDir, 'docs', 'guide.md'))).toBe(true);
+    expect(fs.existsSync(path.join(outputDir, 'data', 'sample.csv'))).toBe(false);
+    expect(fs.existsSync(path.join(outputDir, 'conf', 'settings.json'))).toBe(false);
+  }, 90000);
+
+  it('extracts self-referencing sets for multiple presets correctly', async () => {
+    await installMockPackage(
+      'multi-preset-pkg',
+      '1.0.0',
+      { 'docs/guide.md': '# Guide', 'data/sample.csv': 'a,b' },
+      tmpDir,
+    );
+
+    const pkgJsonPath = path.join(tmpDir, 'node_modules', 'multi-preset-pkg', 'package.json');
+    const existing = JSON.parse(fs.readFileSync(pkgJsonPath).toString()) as object;
+    fs.writeFileSync(
+      pkgJsonPath,
+      JSON.stringify({
+        ...existing,
+        npmdata: {
+          sets: [
+            {
+              package: 'multi-preset-pkg',
+              presets: ['docs'],
+              selector: { files: ['docs/**'] },
+              output: { path: '.', gitignore: false },
+            },
+            {
+              package: 'multi-preset-pkg',
+              presets: ['data'],
+              selector: { files: ['data/**'] },
+              output: { path: '.', gitignore: false },
+            },
+          ],
+        },
+      }),
+    );
+
+    const outputDir = path.join(tmpDir, 'output');
+
+    // Extracting with both presets should pull both file sets
+    const result = await actionExtract({
+      entries: [
+        {
+          package: 'multi-preset-pkg',
+          selector: { presets: ['docs', 'data'] },
+          output: { path: outputDir, gitignore: false },
+        },
+      ],
+      cwd: tmpDir,
+    });
+
+    expect(result.added).toBe(2);
+    expect(fs.existsSync(path.join(outputDir, 'docs', 'guide.md'))).toBe(true);
+    expect(fs.existsSync(path.join(outputDir, 'data', 'sample.csv'))).toBe(true);
+  }, 90000);
+
   it('throws when selector.presets does not match any set in the producer package', async () => {
     await installMockPackage('no-match-pkg', '1.0.0', { 'main.md': '# Main' }, tmpDir);
     const mainPkgJsonPath = path.join(tmpDir, 'node_modules', 'no-match-pkg', 'package.json');

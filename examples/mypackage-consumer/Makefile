@@ -13,10 +13,10 @@ build: install
 test: clean install
 	@echo ""
 	@echo ">>>> mypackage-consumer"
-	pnpm exec example-files-package extract --output output
 
 	# Test 1
-	# fail if a expected extracted file doesn't exist
+	rm -rf output
+	pnpm exec example-files-package extract --output output
 	test -e output/.configs/app.config.json
 	test -e output/docs/adrs/adr-001-sample1.md
 	test -e output/conf/globals.js
@@ -29,16 +29,14 @@ test: clean install
 	test ! -e output/.configs/app.config.json
 	test ! -e output/docs/adrs/adr-001-sample1.md
 
-	pnpm exec example-files-package --output output
-
-	# Test 2
+	# Test 2 - basic preset
 	rm -rf output
 	pnpm exec example-files-package extract --output output --presets basic
 	test -e output/docs/adrs/adr-001-sample1.md
 	test -e output/conf/globals.js
 	test ! -e output/conf/config-schema.js
 
-	# Test 3
+	# Test 3 - eslint preset
 	rm -rf output
 	pnpm exec example-files-package extract --output output --presets eslint
 	test ! -e output/docs/adrs/adr-001-sample1.md

@@ -12,7 +12,7 @@ import { NpmdataConfig } from '../types';
  *
  * Returns the NpmdataConfig when found, or null when no configuration is present.
  */
-export async function loadNpmdataConfig(cwd: string): Promise<NpmdataConfig | null> {
+export async function searchAndLoadNpmdataConfig(cwd: string): Promise<NpmdataConfig | null> {
   const explorer = cosmiconfig('npmdata');
   const result = await explorer.search(cwd);
   if (!result || result.isEmpty) {
