@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.18.8 (2026-03-16)
+
+### Maintenance
+
+* make self package cli use synthetic config instead of package config [[e26ca47](https://github.com/flaviostutz/npmdata/commit/e26ca477a16cac41daaf213553918fa8b704de46)]
+
+### Info
+
+* Authors: Flavio Stutz <flaviostutz@gmail.com>
+
+
 ## 0.18.6 (2026-03-15)
 
 ### Maintenance
