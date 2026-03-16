@@ -96,11 +96,27 @@ async function collectPurgePlan(
         pkgNpmdataSets,
         entry.selector?.presets ?? [],
       );
-      const filteredSets = presetFilteredSets.filter(
+
+      // Self-referencing sets (same package + explicit files) define which of the current
+      // package's own files belong to each preset. Include them alongside external sets so
+      // that --presets filtering works correctly for self-installable packages.
+      const selfRefSets =
+        entry.selector?.presets && entry.selector.presets.length > 0
+          ? presetFilteredSets.filter(
+              (e) =>
+                parsePackageSpec(e.package).name === pkg.name &&
+                e.selector?.files &&
+                e.selector.files.length > 0,
+            )
+          : [];
+
+      const externalSets = presetFilteredSets.filter(
         (e) =>
           !siblingNames.has(parsePackageSpec(e.package).name) &&
           !visitedPackages.has(parsePackageSpec(e.package).name),
       );
+
+      const filteredSets = [...selfRefSets, ...externalSets];
 
       if (filteredSets.length > 0) {
         const visitedSet = new Set(visitedPackages);
@@ -120,7 +136,7 @@ async function collectPurgePlan(
 
         if (verbose) {
           console.log(
-            `[verbose] purge: recursing into ${filteredSets.length} transitive set(s) from ${pkg.name}`,
+            `[verbose] purge: recursing into ${filteredSets.length} set(s) from ${pkg.name} (${selfRefSets.length} self-ref, ${externalSets.length} external)`,
           );
         }
 
