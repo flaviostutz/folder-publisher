@@ -15,7 +15,7 @@ import { purgeFileset } from '../fileset/purge';
 
 export type PurgeOptions = BasicPackageOptions & {
   onProgress?: (event: ProgressEvent) => void;
-  visitedPackages?: Set<string>;
+  visitedEntries?: Set<string>;
   config?: NpmdataConfig;
   presets?: string[];
 };
@@ -29,6 +29,10 @@ export type PurgeSummary = {
 /** Maps absolute outputDir path → managed file entries to purge for that directory. */
 type PurgePlan = Map<string, ManagedFileMetadata[]>;
 
+/** Unique key for a set entry: same package with different selectors is a distinct entry. */
+const entryKey = (entry: NpmdataExtractEntry): string =>
+  `${parsePackageSpec(entry.package).name}|${JSON.stringify(entry.selector ?? {})}`;
+
 /**
  * Phase 1: recursively collect all managed file entries that need to be purged,
  * grouped by output directory. No disk writes are performed.
@@ -38,17 +42,23 @@ async function collectPurgePlan(
   entries: NpmdataExtractEntry[],
   cwd: string,
   verbose: boolean,
-  visitedPackages: Set<string>,
+  visitedEntries: Set<string>,
   plan: PurgePlan,
   onProgress?: (event: ProgressEvent) => void,
 ): Promise<void> {
+  // Skip already-visited entries to break recursion cycles; mark the rest as visited.
+  const entriesToProcess = entries.filter((entry) => !visitedEntries.has(entryKey(entry)));
+  for (const entry of entriesToProcess) {
+    visitedEntries.add(entryKey(entry));
+  }
+
   if (verbose) {
     console.log(
-      `[verbose] purge: collecting ${entries.length} entr${entries.length === 1 ? 'y' : 'ies'} (cwd: ${cwd})`,
+      `[verbose] purge: collecting ${entriesToProcess.length} entr${entriesToProcess.length === 1 ? 'y' : 'ies'} (cwd: ${cwd})`,
     );
   }
 
-  for (const entry of entries) {
+  for (const entry of entriesToProcess) {
     const pkg = parsePackageSpec(entry.package);
     const outputDir = path.resolve(cwd, entry.output?.path ?? '.');
 
@@ -91,37 +101,27 @@ async function collectPurgePlan(
     const pkgNpmdataSets = depPkgJson.npmdata?.sets;
 
     if (pkgNpmdataSets && pkgNpmdataSets.length > 0) {
-      const siblingNames = new Set(entries.map((e) => parsePackageSpec(e.package).name));
       const presetFilteredSets = filterEntriesByPresets(
         pkgNpmdataSets,
         entry.selector?.presets ?? [],
       );
 
-      // Self-referencing sets (same package + explicit files) define which of the current
-      // package's own files belong to each preset. Include them alongside external sets so
-      // that --presets filtering works correctly for self-installable packages.
-      const selfRefSets =
-        entry.selector?.presets && entry.selector.presets.length > 0
-          ? presetFilteredSets.filter(
-              (e) =>
-                parsePackageSpec(e.package).name === pkg.name &&
-                e.selector?.files &&
-                e.selector.files.length > 0,
-            )
-          : [];
+      // Preemptively mark preset-excluded entries as visited so they cannot sneak
+      // back in through a self-referencing set's secondary recursion.
+      for (const e of pkgNpmdataSets) {
+        if (!presetFilteredSets.includes(e)) {
+          visitedEntries.add(entryKey(e));
+        }
+      }
 
-      const externalSets = presetFilteredSets.filter(
+      // Self-referencing sets only recurse when presets are active; external sets always recurse.
+      const filteredSets = presetFilteredSets.filter(
         (e) =>
-          !siblingNames.has(parsePackageSpec(e.package).name) &&
-          !visitedPackages.has(parsePackageSpec(e.package).name),
+          parsePackageSpec(e.package).name !== pkg.name ||
+          (entry.selector?.presets?.length ?? 0) > 0,
       );
 
-      const filteredSets = [...selfRefSets, ...externalSets];
-
       if (filteredSets.length > 0) {
-        const visitedSet = new Set(visitedPackages);
-        visitedSet.add(pkg.name);
-
         const outputConfig = entry.output ?? {};
         const inheritedEntries = filteredSets.map((depEntry) => {
           const { path: depPath, ...restOutput } = depEntry.output ?? {};
@@ -136,11 +136,11 @@ async function collectPurgePlan(
 
         if (verbose) {
           console.log(
-            `[verbose] purge: recursing into ${filteredSets.length} set(s) from ${pkg.name} (${selfRefSets.length} self-ref, ${externalSets.length} external)`,
+            `[verbose] purge: recursing into ${filteredSets.length} set(s) from ${pkg.name}`,
           );
         }
 
-        await collectPurgePlan(inheritedEntries, cwd, verbose, visitedSet, plan, onProgress);
+        await collectPurgePlan(inheritedEntries, cwd, verbose, visitedEntries, plan, onProgress);
       }
     }
   }
@@ -163,7 +163,7 @@ export async function actionPurge(options: PurgeOptions): Promise<PurgeSummary> 
     dryRun = false,
     verbose = false,
     onProgress,
-    visitedPackages = new Set<string>(),
+    visitedEntries = new Set<string>(),
   } = options;
 
   // Phase 1: collect all entries to purge across all recursive sets
@@ -172,7 +172,7 @@ export async function actionPurge(options: PurgeOptions): Promise<PurgeSummary> 
   }
 
   const plan: PurgePlan = new Map();
-  await collectPurgePlan(entries, cwd, verbose, visitedPackages, plan, onProgress);
+  await collectPurgePlan(entries, cwd, verbose, visitedEntries, plan, onProgress);
 
   const summary: PurgeSummary = { deleted: 0, symlinksRemoved: 0, dirsRemoved: 0 };
 

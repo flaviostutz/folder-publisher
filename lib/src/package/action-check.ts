@@ -15,7 +15,7 @@ import { checkFileset } from '../fileset/check';
 
 export type CheckOptions = BasicPackageOptions & {
   onProgress?: (event: ProgressEvent) => void;
-  visitedPackages?: Set<string>;
+  visitedEntries?: Set<string>;
 };
 
 export type CheckSummary = {
@@ -28,24 +28,28 @@ export type CheckSummary = {
  * Orchestrate check across all filesets, filtering out entries with managed=false.
  * Returns a summary of all drift found across all entries.
  */
+/** Unique key for a set entry: same package with different selectors is a distinct entry. */
+const entryKey = (entry: NpmdataExtractEntry): string =>
+  `${parsePackageSpec(entry.package).name}|${JSON.stringify(entry.selector ?? {})}`;
+
 // eslint-disable-next-line complexity
 export async function actionCheck(options: CheckOptions): Promise<CheckSummary> {
-  const {
-    entries,
-    cwd,
-    verbose = false,
-    onProgress,
-    visitedPackages = new Set<string>(),
-  } = options;
+  const { entries, cwd, verbose = false, onProgress, visitedEntries = new Set<string>() } = options;
   const summary: CheckSummary = { missing: [], modified: [], extra: [] };
+
+  // Skip already-visited entries to break recursion cycles; mark the rest as visited.
+  const entriesToProcess = entries.filter((entry) => !visitedEntries.has(entryKey(entry)));
+  for (const entry of entriesToProcess) {
+    visitedEntries.add(entryKey(entry));
+  }
 
   if (verbose) {
     console.log(
-      `[verbose] check: verifying ${entries.length} entr${entries.length === 1 ? 'y' : 'ies'} (cwd: ${cwd})`,
+      `[verbose] check: verifying ${entriesToProcess.length} entr${entriesToProcess.length === 1 ? 'y' : 'ies'} (cwd: ${cwd})`,
     );
   }
 
-  for (const entry of entries) {
+  for (const entry of entriesToProcess) {
     // Skip entries with managed=false — they write no marker so there is nothing to check.
     // The --managed=false flag also suppresses checking for explicitly marked entries.
     if (entry.output?.managed === false) continue;
@@ -117,36 +121,24 @@ export async function actionCheck(options: CheckOptions): Promise<CheckSummary> 
       }
 
       if (pkgNpmdataSets && pkgNpmdataSets.length > 0) {
-        const siblingNames = new Set(entries.map((e) => parsePackageSpec(e.package).name));
         const presetFilteredSets = filterEntriesByPresets(pkgNpmdataSets, entry.selector?.presets);
 
-        // Self-referencing sets (same package + explicit files) define which of the current
-        // package's own files belong to each preset. Include them alongside external sets so
-        // that --presets filtering works correctly for self-installable packages.
-        const selfRefSets =
-          entry.selector?.presets &&
-          entry.selector?.presets.length > 0 &&
-          !visitedPackages.has(pkg.name)
-            ? presetFilteredSets.filter(
-                (e) =>
-                  parsePackageSpec(e.package).name === pkg.name &&
-                  e.selector?.files &&
-                  e.selector.files.length > 0,
-              )
-            : [];
+        // Preemptively mark preset-excluded entries as visited so they cannot sneak
+        // back in through a self-referencing set's secondary recursion.
+        for (const e of pkgNpmdataSets) {
+          if (!presetFilteredSets.includes(e)) {
+            visitedEntries.add(entryKey(e));
+          }
+        }
 
-        const externalSets = presetFilteredSets.filter(
+        // Self-referencing sets only recurse when presets are active; external sets always recurse.
+        const filteredSets = presetFilteredSets.filter(
           (e) =>
-            !siblingNames.has(parsePackageSpec(e.package).name) &&
-            !visitedPackages.has(parsePackageSpec(e.package).name),
+            parsePackageSpec(e.package).name !== pkg.name ||
+            (entry.selector?.presets?.length ?? 0) > 0,
         );
 
-        const filteredSets = [...selfRefSets, ...externalSets];
-
         if (filteredSets.length > 0) {
-          const visitedSet = new Set(visitedPackages);
-          visitedSet.add(pkg.name);
-
           const outputConfig = entry.output ?? {};
           const inheritedEntries = filteredSets.map((depEntry) => {
             const { path: depPath, ...restOutput } = depEntry.output ?? {};
@@ -161,7 +153,7 @@ export async function actionCheck(options: CheckOptions): Promise<CheckSummary> 
 
           if (verbose) {
             console.log(
-              `[verbose] check: recursing into ${filteredSets.length} set(s) from ${pkg.name} (${selfRefSets.length} self-ref, ${externalSets.length} external)`,
+              `[verbose] check: recursing into ${filteredSets.length} set(s) from ${pkg.name}`,
             );
           }
 
@@ -170,7 +162,7 @@ export async function actionCheck(options: CheckOptions): Promise<CheckSummary> 
             cwd,
             verbose,
             onProgress,
-            visitedPackages: visitedSet,
+            visitedEntries,
           });
           summary.missing.push(...subResult.missing);
           summary.modified.push(...subResult.modified);
