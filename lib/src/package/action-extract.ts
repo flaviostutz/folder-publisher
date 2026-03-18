@@ -20,11 +20,7 @@ import { createSymlinks, removeStaleSymlinks } from './symlinks';
 
 export type ExtractOptions = BasicPackageOptions & {
   onProgress?: (event: ProgressEvent) => void;
-  visitedPackages?: Set<string>;
-  /** Pre-installed package paths (name → absolute path). Used to route self-referencing
-   * nested sets through the normal recursion without reinstalling or tripping the
-   * circular-dependency guard. */
-  installedPkgPaths?: Map<string, string>;
+  visitedEntries?: Set<string>;
 };
 
 export type ExtractResult = {
@@ -40,18 +36,21 @@ export type ExtractResult = {
  */
 // eslint-disable-next-line complexity
 export async function actionExtract(options: ExtractOptions): Promise<ExtractResult> {
-  const {
-    entries,
-    cwd,
-    verbose,
-    onProgress,
-    visitedPackages = new Set<string>(),
-    installedPkgPaths,
-  } = options;
+  const { entries, cwd, verbose, onProgress, visitedEntries = new Set<string>() } = options;
+
+  // A unique key per entry: same package name with different selectors is a distinct entry.
+  const entryKey = (entry: NpmdataExtractEntry): string =>
+    `${parsePackageSpec(entry.package).name}|${JSON.stringify(entry.selector ?? {})}`;
+
+  // Skip already-visited entries to break recursion cycles; mark the rest as visited.
+  const entriesToProcess = entries.filter((entry) => !visitedEntries.has(entryKey(entry)));
+  for (const entry of entriesToProcess) {
+    visitedEntries.add(entryKey(entry));
+  }
 
   if (verbose) {
     console.log(
-      `[verbose] >>> EXTRACT - ${entries.reduce((acc, entry) => acc + entry.package + ', ', '').slice(0, -2)}`,
+      `[verbose] >>> EXTRACT - ${entriesToProcess.reduce((acc, entry) => acc + entry.package + ', ', '').slice(0, -2)}`,
     );
   }
 
@@ -60,7 +59,7 @@ export async function actionExtract(options: ExtractOptions): Promise<ExtractRes
   const deferredDeletes: string[] = [];
 
   try {
-    for (const entry of entries) {
+    for (const entry of entriesToProcess) {
       if (verbose) {
         // eslint-disable-next-line no-undefined
         console.log(`[verbose] entry: ${JSON.stringify(entry, undefined, 2)}`);
@@ -70,14 +69,6 @@ export async function actionExtract(options: ExtractOptions): Promise<ExtractRes
         throw new Error('Each set entry must have a "package" field.');
       }
       const pkg = parsePackageSpec(entry.package);
-
-      // Circular dependency detection. Pre-installed packages (self-referencing sets passed
-      // via installedPkgPaths) are exempt — they are already resolved, not truly circular.
-      if (visitedPackages.has(pkg.name) && !installedPkgPaths?.has(pkg.name)) {
-        throw new Error(
-          `Circular dependency detected: package "${pkg.name}" is already being extracted`,
-        );
-      }
 
       const outputDir = path.resolve(cwd, entry.output?.path ?? '.');
       const selector = entry.selector ?? {};
@@ -90,15 +81,11 @@ export async function actionExtract(options: ExtractOptions): Promise<ExtractRes
         packageVersion: pkg.version ?? 'latest',
       });
 
-      // Phase 1: Install package (or reuse pre-installed path for self-referencing sets)
+      // Phase 1: Install package
       const upgrade = selector.upgrade ?? false;
       const alreadyCached =
-        !upgrade &&
-        (installedPkgPaths?.has(pkg.name) ||
-          getInstalledIfSatisfies(pkg.name, pkg.version, cwd) !== null);
-      const pkgPath =
-        installedPkgPaths?.get(pkg.name) ??
-        (await installOrUpgradePackage(pkg.name, pkg.version, upgrade, cwd, verbose));
+        !upgrade && getInstalledIfSatisfies(pkg.name, pkg.version, cwd) !== null;
+      const pkgPath = await installOrUpgradePackage(pkg.name, pkg.version, upgrade, cwd, verbose);
 
       if (verbose) {
         let status = 'installed';
@@ -255,12 +242,6 @@ export async function actionExtract(options: ExtractOptions): Promise<ExtractRes
       }
 
       if (pkgNpmdataSets && pkgNpmdataSets.length > 0) {
-        // Names of packages already being processed at this level (siblings).
-        // Skip recursive resolution for any set entry that is already a sibling — those
-        // will be (or have been) handled by the outer loop. This prevents self-referencing
-        // npmdata.sets from triggering the circular-dependency guard.
-        const siblingNames = new Set(entries.map((e) => parsePackageSpec(e.package).name));
-
         // Apply selector.presets: filter the target package's own sets by the preset tags
         // requested by the consumer. When selector.presets is empty, all sets pass through.
         const presetFilteredSets = filterEntriesByPresets(pkgNpmdataSets, selector.presets);
@@ -269,28 +250,6 @@ export async function actionExtract(options: ExtractOptions): Promise<ExtractRes
             `[verbose] extract: ${pkg.name} has ${pkgNpmdataSets.length} npmdata set(s), ${presetFilteredSets.length} after preset filter`,
           );
         }
-
-        // Self-referencing sets (same package, explicit selector.files) define which of the
-        // current package's own files belong to each preset. They are safe to recurse into:
-        // we pass installedPkgPaths with the current pkgPath so the recursive call reuses it
-        // without reinstalling and without tripping the circular-dependency guard.
-        const selfRefSets =
-          selector.presets && selector.presets.length > 0 && !visitedPackages.has(pkg.name)
-            ? presetFilteredSets.filter(
-                (e) =>
-                  parsePackageSpec(e.package).name === pkg.name &&
-                  e.selector?.files &&
-                  e.selector.files.length > 0,
-              )
-            : [];
-
-        const externalSets = presetFilteredSets.filter(
-          (e) =>
-            !siblingNames.has(parsePackageSpec(e.package).name) &&
-            !visitedPackages.has(parsePackageSpec(e.package).name),
-        );
-
-        const filteredSets = [...selfRefSets, ...externalSets];
 
         if (
           selector.presets &&
@@ -303,15 +262,25 @@ export async function actionExtract(options: ExtractOptions): Promise<ExtractRes
           );
         }
 
+        // Preemptively mark preset-excluded entries as visited so they cannot sneak back
+        // in through a self-referencing set's secondary recursion (which would re-read
+        // the same package.json without the original preset filter).
+        for (const e of pkgNpmdataSets) {
+          if (!presetFilteredSets.includes(e)) {
+            visitedEntries.add(entryKey(e));
+          }
+        }
+
+        // Self-referencing sets (same package name) define file groups for each preset.
+        // Only follow them when the caller explicitly requested presets; otherwise they
+        // are leaves and further recursion would re-expand all sets unintentionally.
+        // External packages are always followed; the visited check prevents cycles.
+        const filteredSets = presetFilteredSets.filter(
+          (e) =>
+            parsePackageSpec(e.package).name !== pkg.name || (selector.presets?.length ?? 0) > 0,
+        );
+
         if (filteredSets.length > 0) {
-          const visitedSet = new Set(visitedPackages);
-          visitedSet.add(pkg.name);
-
-          // Pass the current pkgPath for self-referencing sets so the recursive call skips
-          // reinstallation and bypasses the circular-dependency guard.
-          const preInstalled = new Map(installedPkgPaths ?? []);
-          if (selfRefSets.length > 0) preInstalled.set(pkg.name, pkgPath);
-
           // Inherit caller overrides (force, dryRun, keepExisting, gitignore, managed) from current entry.
           // Caller-defined (non-undefined) values always take precedence; undefined propagates as-is
           // so defaults are only resolved at the leaf execute() level, not during recursion.
@@ -340,7 +309,7 @@ export async function actionExtract(options: ExtractOptions): Promise<ExtractRes
 
           if (verbose) {
             console.log(
-              `[verbose] extract: recursing into ${filteredSets.length} set(s) from ${pkg.name} (${selfRefSets.length} self-ref, ${externalSets.length} external)`,
+              `[verbose] extract: recursing into ${filteredSets.length} set(s) from ${pkg.name}`,
             );
           }
           const subResult = await actionExtract({
@@ -348,8 +317,7 @@ export async function actionExtract(options: ExtractOptions): Promise<ExtractRes
             cwd,
             verbose,
             onProgress,
-            visitedPackages: visitedSet,
-            installedPkgPaths: preInstalled,
+            visitedEntries,
           });
           result.added += subResult.added;
           result.modified += subResult.modified;

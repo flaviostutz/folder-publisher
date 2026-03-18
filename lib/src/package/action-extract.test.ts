@@ -142,20 +142,21 @@ describe('actionExtract', () => {
     expect(fs.readFileSync(path.join(outputDir, 'guide.md'), 'utf8')).toBe('user content');
   }, 60000);
 
-  it('detects circular dependencies', async () => {
+  it('skips already-visited entries to break recursion cycles', async () => {
     await installMockPackage('circ-pkg', '1.0.0', { 'guide.md': 'content' }, tmpDir);
 
-    const visited = new Set(['circ-pkg']);
-    await expect(
-      actionExtract({
-        entries: [
-          { package: 'circ-pkg', output: { path: path.join(tmpDir, 'output'), gitignore: false } },
-        ],
-
-        cwd: tmpDir,
-        visitedPackages: visited,
-      }),
-    ).rejects.toThrow('Circular dependency');
+    // Pre-populate visitedEntries with the key for circ-pkg (no selector)
+    const visited = new Set(['circ-pkg|{}']);
+    const result = await actionExtract({
+      entries: [
+        { package: 'circ-pkg', output: { path: path.join(tmpDir, 'output'), gitignore: false } },
+      ],
+      cwd: tmpDir,
+      visitedEntries: visited,
+    });
+    // Entry was skipped, nothing should have been extracted
+    expect(result.added).toBe(0);
+    expect(result.modified).toBe(0);
   }, 60000);
 
   it('recursively extracts sub-package npmdata.sets from installed dependency', async () => {
