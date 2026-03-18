@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.18.11 (2026-03-17)
+
+### Maintenance
+
+* release: 0.18.10 [[b32d7ee](https://github.com/flaviostutz/npmdata/commit/b32d7ee4d1a717525d1a6464ebf728ab753fec20)]
+* refactor cyclic control [[59bd87a](https://github.com/flaviostutz/npmdata/commit/59bd87a829656d14fe54d86571700d4424641347)]
+* refactor cyclic control [[bbed04a](https://github.com/flaviostutz/npmdata/commit/bbed04a1848cce51d9c450be032b389807561579)]
+* small fix [[4a0317e](https://github.com/flaviostutz/npmdata/commit/4a0317e274410d2b5831835b4aeef9e08bec6bdf)]
+
+### Misc
+
+
+### Info
+
+* Authors: Flavio Stutz <flaviostutz@gmail.com>
+
+
 ## 0.18.10 (2026-03-16)
 
 ### Maintenance
