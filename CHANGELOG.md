@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.18.10 (2026-03-16)
+
+### Maintenance
+
+* release: 0.18.9 [[de0785b](https://github.com/flaviostutz/npmdata/commit/de0785bd9998539c6ae923818de02f873a4b4a8b)]
+* fix loop in self packages [[c80e517](https://github.com/flaviostutz/npmdata/commit/c80e517cf7b8e2550739fbf04fddeab475363eb7)]
+
+### Misc
+
+
+### Info
+
+* Authors: Flavio Stutz <flaviostutz@gmail.com>
+
+
 ## 0.18.9 (2026-03-16)
 
 ### Maintenance
