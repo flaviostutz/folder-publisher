@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.18.12 (2026-03-19)
+
+### Maintenance
+
+* release: 0.18.11 [[aa50a53](https://github.com/flaviostutz/npmdata/commit/aa50a53f3bcfeccbf8ab701360d8771027c1f988)]
+* refactoring overal approach to simplify logic (new internal design) [[bb81942](https://github.com/flaviostutz/npmdata/commit/bb819423972a98ddba71cf0212524f1f6adcfc79)]
+
+### Misc
+
+
+### Info
+
+* Authors: Flavio Stutz <flaviostutz@gmail.com>
+
+
 ## 0.18.11 (2026-03-17)
 
 ### Maintenance
