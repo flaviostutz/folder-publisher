@@ -113,6 +113,11 @@ npm publish
   "npmdata": {
     "sets": [
       {
+        "selector": { "files": ["docs/**", "data/**"] },
+        "output": { "path": "." },
+        "presets": ["prod"]
+      },
+      {
         "package": "base-datasets@^3.0.0",
         "selector": { "files": ["datasets/**"] },
         "output": { "path": "./data/base" },
@@ -131,6 +136,8 @@ npm publish
   }
 }
 ```
+
+In a package's own `npmdata.sets`, omit `package` to mean "extract files from this package itself". Use `package` only for external dependencies.
 
 > **`presets` vs `selector.presets`**
 > - `sets[].presets` — tags **this entry** so it is only processed when `--presets <tag>` matches. Use this in a consumer config to pick which source packages to extract.
@@ -196,7 +203,7 @@ Each entry in `npmdata.sets` supports:
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `package` | `string` | required | Package spec: `my-pkg` or `my-pkg@^1.2.3` |
+| `package` | `string` | none | Package spec for external entries: `my-pkg` or `my-pkg@^1.2.3`. Omit it inside a package's own `npmdata.sets` to refer to that package's own files |
 | `presets` | `string[]` | none | Tags this entry so it is included only when the matching `--presets <tag>` flag is used. Listed by `npmdata presets` |
 | `output.path` | `string` | `.` (cwd) | Extraction directory, relative to where the command runs |
 | `selector.files` | `string[]` | all files | Glob patterns to filter extracted files |

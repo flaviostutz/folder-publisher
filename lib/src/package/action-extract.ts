@@ -1,26 +1,19 @@
 /* eslint-disable no-console */
-
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { NpmdataExtractEntry, ProgressEvent, BasicPackageOptions } from '../types';
-import {
-  parsePackageSpec,
-  installOrUpgradePackage,
-  getInstalledIfSatisfies,
-  cleanupTempPackageJson,
-  filterEntriesByPresets,
-} from '../utils';
-import { diff } from '../fileset/diff';
-import { execute, rollback, deleteFiles } from '../fileset/execute';
-import { readOutputDirMarker } from '../fileset/markers';
-import { matchesFilePatterns } from '../fileset/package-files';
+import { ResolvedFile, DiffResult, ProgressEvent, BasicPackageOptions } from '../types';
+import { cleanupTempPackageJson, ensureDir, formatDisplayPath } from '../utils';
+import { writeMarker, readOutputDirMarker, markerPath } from '../fileset/markers';
+import { addToGitignore, readManagedGitignoreEntries } from '../fileset/gitignore';
 
 import { createSymlinks, removeStaleSymlinks } from './symlinks';
+import { applyContentReplacements } from './content-replacements';
+import { resolveFiles } from './resolve-files';
+import { calculateDiff } from './calculate-diff';
 
 export type ExtractOptions = BasicPackageOptions & {
   onProgress?: (event: ProgressEvent) => void;
-  visitedEntries?: Set<string>;
 };
 
 export type ExtractResult = {
@@ -31,345 +24,277 @@ export type ExtractResult = {
 };
 
 /**
- * Orchestrate full extract across all filesets.
- * Implements the two-phase diff+execute model with conflict detection and rollback.
+ * Extract managed files into the output directories.
+ *
+ * Two-phase approach:
+ *  1. resolveFiles — installs packages and builds the complete desired file list.
+ *  2. calculateDiff — compares desired files against each output directory.
+ *  3. Apply disk changes: delete extra, add missing, resolve conflicts.
  */
 // eslint-disable-next-line complexity
 export async function actionExtract(options: ExtractOptions): Promise<ExtractResult> {
-  const { entries, cwd, verbose, onProgress, visitedEntries = new Set<string>() } = options;
+  const { entries, cwd, verbose = false, onProgress, dryRun } = options;
+  const isDryRun = dryRun ?? entries.some((e) => e.output?.dryRun === true);
 
-  // A unique key per entry: same package name with different selectors is a distinct entry.
-  const entryKey = (entry: NpmdataExtractEntry): string =>
-    `${parsePackageSpec(entry.package).name}|${JSON.stringify(entry.selector ?? {})}`;
+  const result: ExtractResult = { added: 0, modified: 0, deleted: 0, skipped: 0 };
 
-  // Skip already-visited entries to break recursion cycles; mark the rest as visited.
-  const entriesToProcess = entries.filter((entry) => !visitedEntries.has(entryKey(entry)));
-  for (const entry of entriesToProcess) {
-    visitedEntries.add(entryKey(entry));
+  // ── Phase 1: Resolve desired files ──────────────────────────────────────
+  let resolvedFiles: ResolvedFile[];
+  try {
+    resolvedFiles = await resolveFiles(entries, { cwd, verbose, onProgress });
+  } finally {
+    cleanupTempPackageJson(cwd, verbose);
+  }
+
+  if (verbose) {
+    console.log(`[verbose] actionExtract: resolved ${resolvedFiles.length} desired file(s)`);
+  }
+
+  // ── Phase 2: Calculate diff ──────────────────────────────────────────────
+  const diff = await calculateDiff(resolvedFiles, verbose, cwd);
+
+  if (verbose) {
+    console.log(
+      `[verbose] actionExtract: diff ok=${diff.ok.length} missing=${diff.missing.length}` +
+        ` conflict=${diff.conflict.length} extra=${diff.extra.length}`,
+    );
+  }
+
+  // ── Pre-flight conflict check ──────────────────────────────────────────
+  // Detect unmanaged-file conflicts before any disk writes.
+  if (!isDryRun) {
+    for (const entry of diff.conflict) {
+      const desired = entry.desired!;
+      const isUnmanagedConflict = !entry.existing && desired.managed;
+      if (!desired.ignoreIfExisting && !desired.force && isUnmanagedConflict) {
+        throw new Error(
+          `Conflict: file "${entry.relPath}" in "${entry.outputDir}" exists and is not managed` +
+            ` by npmdata.\nUse --force to overwrite or --managed=false to skip.`,
+        );
+      }
+    }
+  }
+
+  // ── Count expected changes ─────────────────────────────────────────────
+  result.added = diff.missing.length;
+  result.deleted = diff.extra.length;
+  for (const entry of diff.conflict) {
+    const desired = entry.desired!;
+    if (desired.ignoreIfExisting || !desired.managed) {
+      result.skipped++;
+    } else {
+      result.modified++;
+    }
+  }
+  result.skipped += diff.ok.length;
+
+  if (isDryRun) return result;
+
+  // ── Phase 3: Apply disk changes ──────────────────────────────────────────
+
+  // Collect unique output directories
+  const outputDirs = new Set(resolvedFiles.map((f) => f.outputDir));
+
+  // Remove stale symlinks before writing new files
+  for (const outputDir of outputDirs) {
+    const dirFiles = resolvedFiles.filter((f) => f.outputDir === outputDir);
+    const symlinks = dirFiles.flatMap((f) => f.symlinks);
+    if (symlinks.length > 0) {
+      await removeStaleSymlinks(outputDir, symlinks);
+    }
+  }
+
+  // Delete extra managed files
+  for (const entry of diff.extra) {
+    const fullPath = path.join(entry.outputDir, entry.relPath);
+    const gitignorePaths = readManagedGitignoreEntries(entry.outputDir);
+    if (fs.existsSync(fullPath)) {
+      fs.chmodSync(fullPath, 0o644);
+      fs.unlinkSync(fullPath);
+    }
+    onProgress?.({
+      type: 'file-deleted',
+      packageName: entry.existing?.packageName ?? '',
+      file: entry.relPath,
+      managed: true,
+      gitignore: gitignorePaths.has(entry.relPath),
+    });
+  }
+
+  // Add missing files
+  for (const entry of diff.missing) {
+    const desired = entry.desired!;
+    writeFileToOutput(
+      desired.sourcePath,
+      path.join(entry.outputDir, desired.relPath),
+      desired.managed,
+    );
+    onProgress?.({
+      type: 'file-added',
+      packageName: desired.packageName,
+      file: desired.relPath,
+      managed: desired.managed,
+      gitignore: desired.gitignore,
+    });
+  }
+
+  // Emit file-skipped for unchanged files (diff.ok)
+  for (const entry of diff.ok) {
+    const desired = entry.desired!;
+    onProgress?.({
+      type: 'file-skipped',
+      packageName: desired.packageName,
+      file: desired.relPath,
+      managed: desired.managed,
+      gitignore: desired.gitignore,
+    });
+  }
+
+  // Resolve conflicts
+  for (const entry of diff.conflict) {
+    const desired = entry.desired!;
+    // managed=false: existing file is user-owned, leave it untouched
+    if (desired.ignoreIfExisting || !desired.managed) {
+      onProgress?.({
+        type: 'file-skipped',
+        packageName: desired.packageName,
+        file: desired.relPath,
+        managed: desired.managed,
+        gitignore: desired.gitignore,
+      });
+      continue;
+    }
+    writeFileToOutput(
+      desired.sourcePath,
+      path.join(entry.outputDir, desired.relPath),
+      desired.managed,
+    );
+    onProgress?.({
+      type: 'file-modified',
+      packageName: desired.packageName,
+      file: desired.relPath,
+      managed: desired.managed,
+      gitignore: desired.gitignore,
+    });
+  }
+
+  // Update marker and gitignore per output directory
+  for (const outputDir of outputDirs) {
+    await updateOutputDirMetadata(outputDir, diff, resolvedFiles, cwd, verbose);
+  }
+
+  // Apply symlinks and content replacements per output directory
+  for (const outputDir of outputDirs) {
+    const dirFiles = resolvedFiles.filter((f) => f.outputDir === outputDir);
+    const symlinkConfigs = uniqueSymlinkConfigs(dirFiles);
+    if (symlinkConfigs.length > 0) {
+      await createSymlinks(outputDir, symlinkConfigs);
+    }
+    const contentReplacements = dirFiles.flatMap((f) => f.contentReplacements);
+    if (contentReplacements.length > 0) {
+      await applyContentReplacements(outputDir, contentReplacements);
+    }
   }
 
   if (verbose) {
     console.log(
-      `[verbose] >>> EXTRACT - ${entriesToProcess.reduce((acc, entry) => acc + entry.package + ', ', '').slice(0, -2)}`,
+      `[verbose] actionExtract: complete — added=${result.added} modified=${result.modified}` +
+        ` deleted=${result.deleted} skipped=${result.skipped}`,
     );
   }
 
-  const result: ExtractResult = { added: 0, modified: 0, deleted: 0, skipped: 0 };
-  const allNewlyCreated: string[] = [];
-  const deferredDeletes: string[] = [];
+  return result;
+}
 
-  try {
-    for (const entry of entriesToProcess) {
-      if (verbose) {
-        // eslint-disable-next-line no-undefined
-        console.log(`[verbose] entry: ${JSON.stringify(entry, undefined, 2)}`);
-      }
+/** Copy a source file to dest, creating parent dirs if needed, and set permissions. */
+function writeFileToOutput(srcPath: string, destPath: string, managed: boolean): void {
+  ensureDir(path.dirname(destPath));
+  if (fs.existsSync(destPath)) fs.chmodSync(destPath, 0o644);
+  fs.copyFileSync(srcPath, destPath);
+  if (managed) fs.chmodSync(destPath, 0o444);
+}
 
-      if (!entry.package) {
-        throw new Error('Each set entry must have a "package" field.');
-      }
-      const pkg = parsePackageSpec(entry.package);
+/**
+ * Update the .npmdata marker and .gitignore for one output directory after
+ * disk changes have been applied.
+ */
+async function updateOutputDirMetadata(
+  outputDir: string,
+  diff: DiffResult,
+  resolvedFiles: ResolvedFile[],
+  cwd: string,
+  verbose?: boolean,
+): Promise<void> {
+  const existingMarker = await readOutputDirMarker(outputDir);
 
-      const outputDir = path.resolve(cwd, entry.output?.path ?? '.');
-      const selector = entry.selector ?? {};
-      const outputConfig = entry.output ?? {};
-      const contentReplacements = outputConfig.contentReplacements ?? [];
+  // Paths removed by this run (extra files that were deleted)
+  const deletedPaths = new Set(
+    diff.extra.filter((e) => e.outputDir === outputDir).map((e) => e.relPath),
+  );
 
-      onProgress?.({
-        type: 'package-start',
-        packageName: pkg.name,
-        packageVersion: pkg.version ?? 'latest',
-      });
+  // New or updated managed entries produced by this run
+  const addedEntries = [
+    ...diff.missing
+      .filter((e) => e.outputDir === outputDir && e.desired?.managed)
+      .map((e) => ({
+        path: e.relPath,
+        packageName: e.desired!.packageName,
+        packageVersion: e.desired!.packageVersion,
+      })),
+    ...diff.conflict
+      .filter((e) => e.outputDir === outputDir && e.desired?.managed && !e.desired.ignoreIfExisting)
+      .map((e) => ({
+        path: e.relPath,
+        packageName: e.desired!.packageName,
+        packageVersion: e.desired!.packageVersion,
+      })),
+  ];
 
-      // Phase 1: Install package
-      const upgrade = selector.upgrade ?? false;
-      const alreadyCached =
-        !upgrade && getInstalledIfSatisfies(pkg.name, pkg.version, cwd) !== null;
-      const pkgPath = await installOrUpgradePackage(pkg.name, pkg.version, upgrade, cwd, verbose);
+  // Merge: keep existing (minus deleted + newly updated), then add new entries
+  const updatedByPath = new Map(
+    existingMarker
+      .filter((m) => !deletedPaths.has(m.path) && !addedEntries.some((e) => e.path === m.path))
+      .map((m) => [m.path, m]),
+  );
+  for (const e of addedEntries) updatedByPath.set(e.path, e);
 
-      if (verbose) {
-        let status = 'installed';
-        if (alreadyCached) status = 'using cached';
-        else if (upgrade) status = 'upgraded';
-        console.log(`[verbose] (${status}) package ${pkg.name} at ${pkgPath}`);
-      }
+  const updatedEntries = [...updatedByPath.values()];
+  await writeMarker(markerPath(outputDir), updatedEntries);
 
-      // Get installed version
-      let installedVersion = '0.0.0';
-      try {
-        const pkgJsonContent = JSON.parse(
-          fs.readFileSync(path.join(pkgPath, 'package.json')).toString(),
-        ) as {
-          version: string;
-        };
-        installedVersion = pkgJsonContent.version;
-      } catch (error) {
-        // fallback
-        if (verbose) {
-          console.warn(
-            `[verbose] extract: could not read version from ${pkg.name}/package.json, defaulting to 0.0.0: ${error}`,
-          );
-        }
-      }
-
-      // Remove stale symlinks before diff
-      if (outputConfig.symlinks && outputConfig.symlinks.length > 0) {
-        if (verbose) {
-          console.log(`[verbose] extract: removing stale symlinks in ${outputDir}`);
-        }
-        await removeStaleSymlinks(outputDir, outputConfig.symlinks);
-      }
-
-      // Phase 2: Read existing marker (all packages combined)
-      if (verbose) {
-        console.log(`[verbose] extract: reading existing output marker from ${outputDir}`);
-      }
-      const existingMarker = await readOutputDirMarker(outputDir);
-
-      // Filter to current package only so diff's toDelete logic doesn't purge
-      // files managed by other packages writing to the same output directory.
-      // Also filter by the current entry's selector patterns so that sibling
-      // sets for the same package don't schedule each other's files for deletion.
-      const pkgMarker = existingMarker.filter(
-        (m) =>
-          m.packageName === pkg.name &&
-          // eslint-disable-next-line no-undefined
-          (selector.files === undefined ||
-            selector.files.length === 0 ||
-            matchesFilePatterns(m.path, selector.files)),
-      );
-      if (verbose) {
-        console.log(
-          `[verbose] extract: marker has ${existingMarker.length} total entries, ${pkgMarker.length} for ${pkg.name}`,
-        );
-      }
-
-      // Phase 3: Diff phase (pure, no disk writes)
-      if (verbose) {
-        console.log(
-          `[verbose] extract: Diffing package files from ${pkgPath} to ${outputDir} with selector ${JSON.stringify(selector)} and outputConfig ${JSON.stringify(outputConfig)}`,
-        );
-      }
-      const extractionMap = await diff(
-        pkgPath,
-        outputDir,
-        selector,
-        outputConfig,
-        pkgMarker,
-        contentReplacements,
-      );
-
-      // Phase 4: Abort on conflicts (unless force or managed=false)
-      if (
-        extractionMap.conflicts.length > 0 &&
-        !outputConfig.force &&
-        outputConfig.managed !== false
-      ) {
-        const conflictPaths = extractionMap.conflicts.map((c) => c.relPath).join('\n');
-        if (verbose) {
-          console.warn(
-            `[verbose] extract: aborting due to ${extractionMap.conflicts.length} conflict(s) in ${outputDir}: ${conflictPaths}`,
-          );
-        }
-        throw new Error(
-          `Conflict: the following files exist and are not managed by npmdata:\n${conflictPaths}\n` +
-            `Use --force to overwrite or --managed=false to skip.`,
-        );
-      }
-
-      // Phase 5: Execute phase (disk writes)
-
-      if (verbose) {
-        console.log(
-          `[verbose] extract: diff result for ${pkg.name}: +${extractionMap.toAdd.length} ~${extractionMap.toModify.length} -${extractionMap.toDelete.length} skip=${extractionMap.toSkip.length} conflicts=${extractionMap.conflicts.length}`,
-        );
-        console.log(`[verbose] extract: executing disk writes for ${pkg.name} in ${outputDir}`);
-      }
-
-      const executeResult = await execute(
-        extractionMap,
-        outputDir,
-        outputConfig,
-        pkg,
-        installedVersion,
-        existingMarker,
-        cwd,
-        verbose,
-      );
-
-      // Collect newly created files for potential rollback
-      allNewlyCreated.push(...executeResult.newlyCreated);
-
-      // Collect deferred deletes (execute across all filesets first)
-      for (const relPath of extractionMap.toDelete) {
-        deferredDeletes.push(path.join(outputDir, relPath));
-      }
-
-      // Emit progress events
-      for (const op of extractionMap.toAdd) {
-        onProgress?.({ type: 'file-added', packageName: pkg.name, file: op.relPath });
-      }
-      for (const op of extractionMap.toModify) {
-        onProgress?.({ type: 'file-modified', packageName: pkg.name, file: op.relPath });
-      }
-      for (const relPath of extractionMap.toDelete) {
-        onProgress?.({ type: 'file-deleted', packageName: pkg.name, file: relPath });
-      }
-      for (const skipped of extractionMap.toSkip) {
-        onProgress?.({ type: 'file-skipped', packageName: pkg.name, file: skipped.relPath });
-      }
-
-      result.added += executeResult.added;
-      result.modified += executeResult.modified;
-      result.skipped += executeResult.skipped;
-
-      // Handle recursive resolution: check if installed package has npmdata.sets
-      let pkgNpmdataSets: NpmdataExtractEntry[] | undefined;
-      try {
-        const depPkgJson = JSON.parse(
-          fs.readFileSync(path.join(pkgPath, 'package.json')).toString(),
-        ) as {
-          npmdata?: { sets?: NpmdataExtractEntry[] };
-        };
-        pkgNpmdataSets = depPkgJson.npmdata?.sets;
-      } catch (error) {
-        // No package.json or no npmdata.sets
-        if (verbose) {
-          console.warn(
-            `[verbose] extract: could not read npmdata.sets from ${pkg.name}/package.json: ${error}`,
-          );
-        }
-      }
-
-      if (pkgNpmdataSets && pkgNpmdataSets.length > 0) {
-        // Apply selector.presets: filter the target package's own sets by the preset tags
-        // requested by the consumer. When selector.presets is empty, all sets pass through.
-        const presetFilteredSets = filterEntriesByPresets(pkgNpmdataSets, selector.presets);
-        if (verbose) {
-          console.log(
-            `[verbose] extract: ${pkg.name} has ${pkgNpmdataSets.length} npmdata set(s), ${presetFilteredSets.length} after preset filter`,
-          );
-        }
-
-        if (
-          selector.presets &&
-          selector.presets.length > 0 &&
-          pkgNpmdataSets.length > 0 &&
-          presetFilteredSets.length === 0
-        ) {
-          throw new Error(
-            `Presets (${selector.presets.join(', ')}) not found in any set of package "${pkg.name}"`,
-          );
-        }
-
-        // Preemptively mark preset-excluded entries as visited so they cannot sneak back
-        // in through a self-referencing set's secondary recursion (which would re-read
-        // the same package.json without the original preset filter).
-        for (const e of pkgNpmdataSets) {
-          if (!presetFilteredSets.includes(e)) {
-            visitedEntries.add(entryKey(e));
-          }
-        }
-
-        // Self-referencing sets (same package name) define file groups for each preset.
-        // Only follow them when the caller explicitly requested presets; otherwise they
-        // are leaves and further recursion would re-expand all sets unintentionally.
-        // External packages are always followed; the visited check prevents cycles.
-        const filteredSets = presetFilteredSets.filter(
-          (e) =>
-            parsePackageSpec(e.package).name !== pkg.name || (selector.presets?.length ?? 0) > 0,
-        );
-
-        if (filteredSets.length > 0) {
-          // Inherit caller overrides (force, dryRun, keepExisting, gitignore, managed) from current entry.
-          // Caller-defined (non-undefined) values always take precedence; undefined propagates as-is
-          // so defaults are only resolved at the leaf execute() level, not during recursion.
-          const inheritedEntries = filteredSets.map((depEntry) => {
-            const { path: depPath, ...restOutput } = depEntry.output ?? {};
-            const inheritedOutput = {
-              ...restOutput,
-              path: path.join(outputConfig.path ?? '.', depPath ?? '.'),
-              force: outputConfig.force ?? restOutput.force,
-              dryRun: outputConfig.dryRun ?? restOutput.dryRun,
-              keepExisting: outputConfig.keepExisting ?? restOutput.keepExisting,
-              gitignore: outputConfig.gitignore ?? restOutput.gitignore,
-              managed: outputConfig.managed ?? restOutput.managed,
-              // Append symlinks and contentReplacements
-              symlinks: [...(outputConfig.symlinks ?? []), ...(restOutput.symlinks ?? [])],
-              contentReplacements: [
-                ...(outputConfig.contentReplacements ?? []),
-                ...(restOutput.contentReplacements ?? []),
-              ],
-            };
-            return {
-              ...depEntry,
-              output: inheritedOutput,
-            };
-          });
-
-          if (verbose) {
-            console.log(
-              `[verbose] extract: recursing into ${filteredSets.length} set(s) from ${pkg.name}`,
-            );
-          }
-          const subResult = await actionExtract({
-            entries: inheritedEntries,
-            cwd,
-            verbose,
-            onProgress,
-            visitedEntries,
-          });
-          result.added += subResult.added;
-          result.modified += subResult.modified;
-          result.deleted += subResult.deleted;
-          result.skipped += subResult.skipped;
-        }
-      }
-
-      // Create symlinks
-      if (outputConfig.symlinks && outputConfig.symlinks.length > 0 && !outputConfig.dryRun) {
-        if (verbose) {
-          console.log(
-            `[verbose] extract: creating ${outputConfig.symlinks.length} symlink(s) in ${outputDir}`,
-          );
-        }
-        await createSymlinks(outputDir, outputConfig.symlinks);
-      }
-
-      onProgress?.({
-        type: 'package-end',
-        packageName: pkg.name,
-        packageVersion: installedVersion,
-      });
-    }
-
-    // Deferred deletions: delete after all filesets have been processed
-    if (verbose && deferredDeletes.length > 0) {
-      console.log(`[verbose] extract: performing ${deferredDeletes.length} deferred deletion(s)`);
-    }
-    await deleteFiles(deferredDeletes, verbose);
-    result.deleted += deferredDeletes.length;
-
-    // cleanup temp package.json and node_module if was created just for this extraction
-    cleanupTempPackageJson(cwd, verbose);
-
-    if (verbose) {
-      console.log(
-        `[verbose] extract: complete - added=${result.added} modified=${result.modified} deleted=${result.deleted} skipped=${result.skipped}`,
-      );
-    }
-  } catch (error) {
-    // Partial rollback: delete only newly created files
-    if (verbose) {
-      console.error(
-        `[verbose] extract: error encountered, rolling back ${allNewlyCreated.length} newly created file(s): ${error}`,
-      );
-    }
-    await rollback(allNewlyCreated);
-    // Ensure temp package.json is cleaned up even on failure
-    cleanupTempPackageJson(cwd, verbose);
-    throw error;
+  if (verbose) {
+    console.log(
+      `[verbose] updateOutputDirMetadata: ${formatDisplayPath(outputDir, cwd)}: marker updated (${updatedEntries.length} entries)`,
+    );
   }
 
+  // Update gitignore: include all remaining managed entries whose gitignore=true
+  const resolvedByPath = new Map(
+    resolvedFiles.filter((f) => f.outputDir === outputDir).map((f) => [f.relPath, f]),
+  );
+  const gitignorePaths = updatedEntries
+    .filter((e) => {
+      const resolved = resolvedByPath.get(e.path);
+      // For files resolved in this run, honour their gitignore setting.
+      // For files from other packages sharing the dir, default to true.
+      return resolved ? resolved.gitignore : true;
+    })
+    .map((e) => e.path);
+
+  await addToGitignore(outputDir, gitignorePaths);
+}
+
+/** Deduplicate SymlinkConfig objects by JSON representation. */
+function uniqueSymlinkConfigs(files: ResolvedFile[]): import('../types').SymlinkConfig[] {
+  const seen = new Set<string>();
+  const result: import('../types').SymlinkConfig[] = [];
+  for (const f of files) {
+    for (const s of f.symlinks) {
+      const key = JSON.stringify(s);
+      if (!seen.has(key)) {
+        seen.add(key);
+        result.push(s);
+      }
+    }
+  }
   return result;
 }

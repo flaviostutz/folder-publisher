@@ -2,6 +2,7 @@
 import { NpmdataConfig, NpmdataExtractEntry } from '../../types';
 import { parseArgv, buildEntriesFromArgv, applyArgvOverrides } from '../argv';
 import { printUsage } from '../usage';
+import { formatProgressFile } from '../progress';
 import { actionPurge } from '../../package/action-purge';
 
 /**
@@ -30,13 +31,11 @@ export async function runPurge(
   const summary = await actionPurge({
     entries,
     cwd,
-    ...(config ? { config } : {}),
-    presets: parsed.presets ?? [],
     dryRun: parsed.dryRun,
     verbose: parsed.verbose,
     onProgress: (event: import('../../types').ProgressEvent) => {
       if (parsed.silent) return;
-      if (event.type === 'file-deleted') console.log(`  - ${event.file}`);
+      if (event.type === 'file-deleted') console.log(`  - ${formatProgressFile(event)}`);
     },
   });
 

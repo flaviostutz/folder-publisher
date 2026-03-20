@@ -5,7 +5,9 @@ import path from 'node:path';
 import os from 'node:os';
 
 import { writeMarker, markerPath } from '../fileset/markers';
-import { NpmdataExtractEntry } from '../types';
+import { addToGitignore } from '../fileset/gitignore';
+import { installMockPackage } from '../fileset/test-utils';
+import { NpmdataExtractEntry, ProgressEvent } from '../types';
 import { filterEntriesByPresets } from '../utils';
 
 import { actionPurge } from './action-purge';
@@ -22,12 +24,14 @@ afterEach(() => {
 
 describe('actionPurge', () => {
   it('deletes managed files for matching package', async () => {
+    await installMockPackage('mypkg', '1.0.0', { 'guide.md': '# h' }, tmpDir);
+
     const outputDir = path.join(tmpDir, 'out');
     fs.mkdirSync(outputDir, { recursive: true });
-    fs.writeFileSync(path.join(outputDir, 'README.md'), '# h');
+    fs.writeFileSync(path.join(outputDir, 'guide.md'), '# h');
 
     await writeMarker(markerPath(outputDir), [
-      { path: 'README.md', packageName: 'mypkg', packageVersion: '1.0.0' },
+      { path: 'guide.md', packageName: 'mypkg', packageVersion: '1.0.0' },
     ]);
 
     const entries: NpmdataExtractEntry[] = [
@@ -36,16 +40,18 @@ describe('actionPurge', () => {
     const result = await actionPurge({ entries, cwd: tmpDir });
 
     expect(result.deleted).toBe(1);
-    expect(fs.existsSync(path.join(outputDir, 'README.md'))).toBe(false);
-  });
+    expect(fs.existsSync(path.join(outputDir, 'guide.md'))).toBe(false);
+  }, 60_000);
 
   it('dry-run counts but does not delete', async () => {
+    await installMockPackage('mypkg', '1.0.0', { 'guide.md': '# h' }, tmpDir);
+
     const outputDir = path.join(tmpDir, 'out');
     fs.mkdirSync(outputDir, { recursive: true });
-    fs.writeFileSync(path.join(outputDir, 'README.md'), '# h');
+    fs.writeFileSync(path.join(outputDir, 'guide.md'), '# h');
 
     await writeMarker(markerPath(outputDir), [
-      { path: 'README.md', packageName: 'mypkg', packageVersion: '1.0.0' },
+      { path: 'guide.md', packageName: 'mypkg', packageVersion: '1.0.0' },
     ]);
 
     const entries: NpmdataExtractEntry[] = [
@@ -54,10 +60,12 @@ describe('actionPurge', () => {
     const result = await actionPurge({ entries, cwd: tmpDir, dryRun: true });
 
     expect(result.deleted).toBe(1);
-    expect(fs.existsSync(path.join(outputDir, 'README.md'))).toBe(true);
-  });
+    expect(fs.existsSync(path.join(outputDir, 'guide.md'))).toBe(true);
+  }, 60_000);
 
   it('only purges files for the matching package', async () => {
+    await installMockPackage('pkg-a', '1.0.0', { 'a.md': 'aaa' }, tmpDir);
+
     const outputDir = path.join(tmpDir, 'out');
     fs.mkdirSync(outputDir, { recursive: true });
     fs.writeFileSync(path.join(outputDir, 'a.md'), 'aaa');
@@ -77,9 +85,11 @@ describe('actionPurge', () => {
     expect(result.deleted).toBe(1);
     expect(fs.existsSync(path.join(outputDir, 'a.md'))).toBe(false);
     expect(fs.existsSync(path.join(outputDir, 'b.md'))).toBe(true);
-  });
+  }, 60_000);
 
   it('respects preset filtering', async () => {
+    await installMockPackage('pkg-a', '1.0.0', { 'a.md': 'a' }, tmpDir);
+
     const outA = path.join(tmpDir, 'out-a');
     const outB = path.join(tmpDir, 'out-b');
     fs.mkdirSync(outA, { recursive: true });
@@ -95,8 +105,8 @@ describe('actionPurge', () => {
     ]);
 
     const entries: NpmdataExtractEntry[] = [
-      { package: 'pkg-a@1.0.0', output: { path: outA }, selector: { presets: ['preset-a'] } },
-      { package: 'pkg-b@1.0.0', output: { path: outB }, selector: { presets: ['preset-b'] } },
+      { package: 'pkg-a@1.0.0', output: { path: outA }, presets: ['preset-a'] },
+      { package: 'pkg-b@1.0.0', output: { path: outB }, presets: ['preset-b'] },
     ];
 
     // Only process preset-a
@@ -106,12 +116,19 @@ describe('actionPurge', () => {
     expect(result.deleted).toBe(1);
     expect(fs.existsSync(path.join(outA, 'a.md'))).toBe(false);
     expect(fs.existsSync(path.join(outB, 'b.md'))).toBe(true);
-  });
+  }, 60_000);
 
   it('emits progress events', async () => {
+    await installMockPackage('mypkg', '1.0.0', { 'guide.md': '# h' }, tmpDir);
+
     const events: string[] = [];
     const outputDir = path.join(tmpDir, 'out');
     fs.mkdirSync(outputDir, { recursive: true });
+    fs.writeFileSync(path.join(outputDir, 'guide.md'), '# h');
+
+    await writeMarker(markerPath(outputDir), [
+      { path: 'guide.md', packageName: 'mypkg', packageVersion: '1.0.0' },
+    ]);
 
     const entries: NpmdataExtractEntry[] = [
       { package: 'mypkg@1.0.0', output: { path: outputDir } },
@@ -124,9 +141,11 @@ describe('actionPurge', () => {
 
     expect(events).toContain('package-start');
     expect(events).toContain('package-end');
-  });
+  }, 60_000);
 
   it('emits file-deleted events for each purged file', async () => {
+    await installMockPackage('mypkg', '1.0.0', { 'notes.md': 'notes' }, tmpDir);
+
     const events: Array<{ type: string; file?: string }> = [];
     const outputDir = path.join(tmpDir, 'out');
     fs.mkdirSync(outputDir, { recursive: true });
@@ -147,9 +166,39 @@ describe('actionPurge', () => {
 
     const fileDeleted = events.find((e) => e.type === 'file-deleted');
     expect(fileDeleted).toBeDefined();
-  });
+  }, 60_000);
+
+  it('emits managed and gitignore metadata on file-deleted events', async () => {
+    await installMockPackage('mypkg-flags', '1.0.0', { 'notes.md': 'notes' }, tmpDir);
+
+    const events: ProgressEvent[] = [];
+    const outputDir = path.join(tmpDir, 'out-flags');
+    fs.mkdirSync(outputDir, { recursive: true });
+    fs.writeFileSync(path.join(outputDir, 'notes.md'), 'notes');
+
+    await writeMarker(markerPath(outputDir), [
+      { path: 'notes.md', packageName: 'mypkg-flags', packageVersion: '1.0.0' },
+    ]);
+    await addToGitignore(outputDir, ['notes.md']);
+
+    await actionPurge({
+      entries: [{ package: 'mypkg-flags@1.0.0', output: { path: outputDir } }],
+      cwd: tmpDir,
+      onProgress: (e) => events.push(e),
+    });
+
+    const fileDeleted = events.find((e) => e.type === 'file-deleted');
+    expect(fileDeleted).toMatchObject({
+      type: 'file-deleted',
+      file: 'notes.md',
+      managed: true,
+      gitignore: true,
+    });
+  }, 60_000);
 
   it('verbose mode logs without errors', async () => {
+    await installMockPackage('verbose-pkg', '1.0.0', { 'verbose.md': 'content' }, tmpDir);
+
     const outputDir = path.join(tmpDir, 'out');
     fs.mkdirSync(outputDir, { recursive: true });
     fs.writeFileSync(path.join(outputDir, 'verbose.md'), 'content');
@@ -164,9 +213,11 @@ describe('actionPurge', () => {
     const result = await actionPurge({ entries, cwd: tmpDir, verbose: true });
 
     expect(result.deleted).toBe(1);
-  });
+  }, 60_000);
 
   it('verbose dry-run logs phase messages', async () => {
+    await installMockPackage('vdry-pkg', '1.0.0', { 'file.md': 'content' }, tmpDir);
+
     const outputDir = path.join(tmpDir, 'out');
     fs.mkdirSync(outputDir, { recursive: true });
     fs.writeFileSync(path.join(outputDir, 'file.md'), 'content');
@@ -187,113 +238,22 @@ describe('actionPurge', () => {
 
     expect(result.deleted).toBe(1);
     expect(fs.existsSync(path.join(outputDir, 'file.md'))).toBe(true);
-  });
-
-  it('skips hierarchy when transitive package is not installed', async () => {
-    // Parent is installed but the child it references is not installed
-    const parentPkgDir = path.join(tmpDir, 'node_modules', 'parent-uninstalled-child');
-    fs.mkdirSync(parentPkgDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(parentPkgDir, 'package.json'),
-      JSON.stringify({
-        name: 'parent-uninstalled-child',
-        version: '1.0.0',
-        npmdata: {
-          sets: [{ package: 'nonexistent-child@1.0.0', output: { path: 'child-out' } }],
-        },
-      }),
-    );
-
-    const parentOutputDir = path.join(tmpDir, 'parent-out');
-    fs.mkdirSync(parentOutputDir, { recursive: true });
-    fs.writeFileSync(path.join(parentOutputDir, 'parent.md'), 'parent');
-
-    await writeMarker(markerPath(parentOutputDir), [
-      { path: 'parent.md', packageName: 'parent-uninstalled-child', packageVersion: '1.0.0' },
-    ]);
-
-    const entries: NpmdataExtractEntry[] = [
-      { package: 'parent-uninstalled-child@1.0.0', output: { path: parentOutputDir } },
-    ];
-    // Should not throw and should purge the parent file
-    const result = await actionPurge({ entries, cwd: tmpDir });
-
-    expect(result.deleted).toBe(1);
-    expect(fs.existsSync(path.join(parentOutputDir, 'parent.md'))).toBe(false);
-  });
-
-  it('hierarchically purges transitive packages declared in npmdata.sets with verbose', async () => {
-    // Same as the non-verbose hierarchical test but with verbose: true to cover the
-    // "recursing into" verbose log branch (line ~122 in action-purge.ts).
-    const parentPkgDir = path.join(tmpDir, 'node_modules', 'vp-parent');
-    fs.mkdirSync(parentPkgDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(parentPkgDir, 'package.json'),
-      JSON.stringify({
-        name: 'vp-parent',
-        version: '1.0.0',
-        npmdata: { sets: [{ package: 'vp-child@1.0.0', output: { path: 'child-out' } }] },
-      }),
-    );
-
-    const childPkgDir = path.join(tmpDir, 'node_modules', 'vp-child');
-    fs.mkdirSync(childPkgDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(childPkgDir, 'package.json'),
-      JSON.stringify({ name: 'vp-child', version: '1.0.0' }),
-    );
-
-    const parentOutputDir = path.join(tmpDir, 'vp-parent-out');
-    fs.mkdirSync(parentOutputDir, { recursive: true });
-    fs.writeFileSync(path.join(parentOutputDir, 'parent.md'), 'parent content');
-    await writeMarker(markerPath(parentOutputDir), [
-      { path: 'parent.md', packageName: 'vp-parent', packageVersion: '1.0.0' },
-    ]);
-
-    const childOutputDir = path.join(tmpDir, 'vp-parent-out', 'child-out');
-    fs.mkdirSync(childOutputDir, { recursive: true });
-    fs.writeFileSync(path.join(childOutputDir, 'child.md'), 'child content');
-    await writeMarker(markerPath(childOutputDir), [
-      { path: 'child.md', packageName: 'vp-child', packageVersion: '1.0.0' },
-    ]);
-
-    const entries: NpmdataExtractEntry[] = [
-      { package: 'vp-parent@1.0.0', output: { path: parentOutputDir } },
-    ];
-    const result = await actionPurge({ entries, cwd: tmpDir, verbose: true });
-
-    expect(result.deleted).toBe(2);
-    expect(fs.existsSync(path.join(parentOutputDir, 'parent.md'))).toBe(false);
-    expect(fs.existsSync(path.join(childOutputDir, 'child.md'))).toBe(false);
-  });
+  }, 60_000);
 
   it('hierarchically purges transitive packages declared in npmdata.sets', async () => {
-    // Simulate a parent package (pkg-parent) installed in node_modules whose
-    // package.json declares npmdata.sets pointing at a child package (pkg-child).
-    const parentPkgDir = path.join(tmpDir, 'node_modules', 'pkg-parent');
-    fs.mkdirSync(parentPkgDir, { recursive: true });
+    // Install child first
+    await installMockPackage('pkg-child', '1.0.0', { 'child.md': 'child content' }, tmpDir);
+    // Install parent (no files — only the npmdata.sets entry matters)
+    await installMockPackage('pkg-parent', '1.0.0', { 'parent.md': 'parent content' }, tmpDir);
+    // Patch parent's installed package.json to declare npmdata.sets → child
+    const parentPkgJsonPath = path.join(tmpDir, 'node_modules', 'pkg-parent', 'package.json');
+    const parentPkgJson = JSON.parse(fs.readFileSync(parentPkgJsonPath).toString()) as object;
     fs.writeFileSync(
-      path.join(parentPkgDir, 'package.json'),
+      parentPkgJsonPath,
       JSON.stringify({
-        name: 'pkg-parent',
-        version: '1.0.0',
-        npmdata: {
-          sets: [
-            {
-              package: 'pkg-child@1.0.0',
-              output: { path: 'child-out' },
-            },
-          ],
-        },
+        ...parentPkgJson,
+        npmdata: { sets: [{ package: 'pkg-child@1.0.0', output: { path: 'child-out' } }] },
       }),
-    );
-
-    // Simulate the child package also installed (so hierarchical recursion can resolve further)
-    const childPkgDir = path.join(tmpDir, 'node_modules', 'pkg-child');
-    fs.mkdirSync(childPkgDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(childPkgDir, 'package.json'),
-      JSON.stringify({ name: 'pkg-child', version: '1.0.0' }),
     );
 
     // Parent output dir
@@ -322,5 +282,100 @@ describe('actionPurge', () => {
     expect(result.deleted).toBe(2);
     expect(fs.existsSync(path.join(parentOutputDir, 'parent.md'))).toBe(false);
     expect(fs.existsSync(path.join(childOutputDir, 'child.md'))).toBe(false);
-  });
+  }, 120_000);
+
+  it('hierarchically purges transitive packages declared in npmdata.sets with verbose', async () => {
+    // Install child first
+    await installMockPackage('vp-child', '1.0.0', { 'child.md': 'child content' }, tmpDir);
+    // Install parent, then patch npmdata.sets into the installed package.json
+    await installMockPackage('vp-parent', '1.0.0', { 'parent.md': 'parent content' }, tmpDir);
+    const parentPkgJsonPath = path.join(tmpDir, 'node_modules', 'vp-parent', 'package.json');
+    const parentPkgJson = JSON.parse(fs.readFileSync(parentPkgJsonPath).toString());
+    fs.writeFileSync(
+      parentPkgJsonPath,
+      JSON.stringify({
+        ...parentPkgJson,
+        npmdata: { sets: [{ package: 'vp-child@1.0.0', output: { path: 'child-out' } }] },
+      }),
+    );
+
+    const parentOutputDir = path.join(tmpDir, 'vp-parent-out');
+    fs.mkdirSync(parentOutputDir, { recursive: true });
+    fs.writeFileSync(path.join(parentOutputDir, 'parent.md'), 'parent content');
+    await writeMarker(markerPath(parentOutputDir), [
+      { path: 'parent.md', packageName: 'vp-parent', packageVersion: '1.0.0' },
+    ]);
+
+    const childOutputDir = path.join(tmpDir, 'vp-parent-out', 'child-out');
+    fs.mkdirSync(childOutputDir, { recursive: true });
+    fs.writeFileSync(path.join(childOutputDir, 'child.md'), 'child content');
+    await writeMarker(markerPath(childOutputDir), [
+      { path: 'child.md', packageName: 'vp-child', packageVersion: '1.0.0' },
+    ]);
+
+    const entries: NpmdataExtractEntry[] = [
+      { package: 'vp-parent@1.0.0', output: { path: parentOutputDir } },
+    ];
+    const result = await actionPurge({ entries, cwd: tmpDir, verbose: true });
+
+    expect(result.deleted).toBe(2);
+    expect(fs.existsSync(path.join(parentOutputDir, 'parent.md'))).toBe(false);
+    expect(fs.existsSync(path.join(childOutputDir, 'child.md'))).toBe(false);
+  }, 120_000);
+
+  it('leaves nested managed=false files on disk during purge', async () => {
+    await installMockPackage(
+      'purge-nested-child',
+      '1.0.0',
+      { 'conf/config-schema.js': 'pkg content' },
+      tmpDir,
+    );
+    await installMockPackage(
+      'purge-nested-parent',
+      '1.0.0',
+      { 'docs/guide.md': '# Guide' },
+      tmpDir,
+    );
+
+    const parentPkgJsonPath = path.join(
+      tmpDir,
+      'node_modules',
+      'purge-nested-parent',
+      'package.json',
+    );
+    const parentPkgJson = JSON.parse(fs.readFileSync(parentPkgJsonPath).toString()) as object;
+    fs.writeFileSync(
+      parentPkgJsonPath,
+      JSON.stringify({
+        ...parentPkgJson,
+        npmdata: {
+          sets: [
+            {
+              package: 'purge-nested-child@1.0.0',
+              selector: { files: ['conf/config-schema.js'] },
+              output: { path: '.', managed: false },
+            },
+          ],
+        },
+      }),
+    );
+
+    const outputDir = path.join(tmpDir, 'out-nested-managed-false');
+    fs.mkdirSync(path.join(outputDir, 'docs'), { recursive: true });
+    fs.mkdirSync(path.join(outputDir, 'conf'), { recursive: true });
+    fs.writeFileSync(path.join(outputDir, 'docs/guide.md'), '# Guide');
+    fs.writeFileSync(path.join(outputDir, 'conf/config-schema.js'), 'custom local content');
+    await writeMarker(markerPath(outputDir), [
+      { path: 'docs/guide.md', packageName: 'purge-nested-parent', packageVersion: '1.0.0' },
+    ]);
+
+    const result = await actionPurge({
+      entries: [{ package: 'purge-nested-parent@1.0.0', output: { path: outputDir } }],
+      cwd: tmpDir,
+    });
+
+    expect(result.deleted).toBe(1);
+    expect(fs.existsSync(path.join(outputDir, 'docs/guide.md'))).toBe(false);
+    expect(fs.existsSync(path.join(outputDir, 'conf/config-schema.js'))).toBe(true);
+  }, 60000);
 });

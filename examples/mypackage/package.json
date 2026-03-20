@@ -18,12 +18,15 @@
   "npmdata": {
     "sets": [
       {
-        "package": "example-files-package",
         "selector": {
           "files": [
             "docs/**",
             "data/**",
             ".configs/**"
+          ],
+          "exclude": [
+            "data/users-dataset/user2.json",
+            "data/users-dataset/user3.json"
           ]
         },
         "output": {
@@ -31,6 +34,21 @@
         },
         "presets": [
           "basic"
+        ]
+      },
+      {
+        "selector": {
+          "files": [
+            "data/users-dataset/user2.json"
+          ]
+        },
+        "output": {
+          "path": ".",
+          "managed": false,
+          "gitignore": false
+        },
+        "presets": [
+          "special"
         ]
       },
       {

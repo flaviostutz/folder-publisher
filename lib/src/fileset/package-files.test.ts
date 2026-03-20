@@ -71,6 +71,11 @@ describe('enumeratePackageFiles', () => {
     expect(files).not.toContain('src/index.ts');
   });
 
+  it('returns empty array when files is an explicit empty list', async () => {
+    const files = await enumeratePackageFiles(pkgPath, { files: [] });
+    expect(files).toHaveLength(0);
+  });
+
   it('applies contentRegexes filter', async () => {
     const files = await enumeratePackageFiles(pkgPath, {
       files: ['**'],

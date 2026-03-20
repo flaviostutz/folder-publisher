@@ -236,19 +236,30 @@ describe('execute', () => {
     });
 
     // Execute with verbose=true and gitignore=true to exercise all verbose branches
-    await execute(
-      map,
-      outputDir,
-      { path: '.', gitignore: true },
-      { name: 'my-pkg' },
-      '1.0.0',
-      [],
-      tmpDir,
-      true, // verbose
-    );
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(jest.fn());
+    try {
+      await execute(
+        map,
+        outputDir,
+        { path: '.', gitignore: true },
+        { name: 'my-pkg' },
+        '1.0.0',
+        [],
+        tmpDir,
+        true, // verbose
+      );
 
-    expect(fs.existsSync(destPath)).toBe(true);
-    expect(fs.readFileSync(modDestPath, 'utf8')).toBe('# Modified');
+      expect(fs.existsSync(destPath)).toBe(true);
+      expect(fs.readFileSync(modDestPath, 'utf8')).toBe('# Modified');
+
+      const logs = consoleSpy.mock.calls.map((args) => args.join(' ')).join('\n');
+      expect(logs).toContain('[verbose] execute: adding file output/verbose-add.md');
+      expect(logs).toContain('[verbose] execute: modifying file output/verbose-mod.md');
+      expect(logs).toContain('[verbose] execute: writing marker file at output/.npmdata');
+      expect(logs).not.toContain(destPath);
+    } finally {
+      consoleSpy.mockRestore();
+    }
   });
 
   it('verbose mode logs content replacement step', async () => {

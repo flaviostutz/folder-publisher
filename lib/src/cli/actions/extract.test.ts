@@ -279,8 +279,14 @@ describe('runExtract — onProgress handler', () => {
   };
 
   it('logs file-added event with + prefix', async () => {
-    const logs = await runWithEvent({ type: 'file-added', packageName: 'pkg', file: 'docs/a.md' });
-    expect(logs.includes('  + docs/a.md')).toBe(true);
+    const logs = await runWithEvent({
+      type: 'file-added',
+      packageName: 'pkg',
+      file: 'docs/a.md',
+      managed: true,
+      gitignore: true,
+    });
+    expect(logs.includes('  + docs/a.md (M,I)')).toBe(true);
   });
 
   it('logs file-modified event with ~ prefix', async () => {
@@ -288,8 +294,10 @@ describe('runExtract — onProgress handler', () => {
       type: 'file-modified',
       packageName: 'pkg',
       file: 'docs/b.md',
+      managed: false,
+      gitignore: true,
     });
-    expect(logs.includes('  ~ docs/b.md')).toBe(true);
+    expect(logs.includes('  ~ docs/b.md (U,I)')).toBe(true);
   });
 
   it('logs file-deleted event with - prefix', async () => {
@@ -297,12 +305,17 @@ describe('runExtract — onProgress handler', () => {
       type: 'file-deleted',
       packageName: 'pkg',
       file: 'docs/c.md',
+      managed: true,
+      gitignore: false,
     });
-    expect(logs.includes('  - docs/c.md')).toBe(true);
+    expect(logs.includes('  - docs/c.md (M,G)')).toBe(true);
   });
 
   it('suppresses progress output when entry is silent', async () => {
-    const logs = await runWithEvent({ type: 'file-added', packageName: 'pkg', file: 'x.md' }, true);
+    const logs = await runWithEvent(
+      { type: 'file-added', packageName: 'pkg', file: 'x.md', managed: true, gitignore: true },
+      true,
+    );
     // Only the summary line should appear, not a progress line
     expect(logs.every((l) => !l.startsWith('  +'))).toBe(true);
   });
@@ -312,8 +325,44 @@ describe('runExtract — onProgress handler', () => {
       type: 'file-skipped',
       packageName: 'pkg',
       file: 'docs/d.md',
+      managed: true,
+      gitignore: true,
     });
     expect(logs.every((l) => !l.includes('docs/d.md'))).toBe(true);
+  });
+
+  it('renders managed and tracked suffix when gitignore is false', async () => {
+    const logs = await runWithEvent({
+      type: 'file-added',
+      packageName: 'pkg',
+      file: 'docs/e.md',
+      managed: true,
+      gitignore: false,
+    });
+    expect(logs.includes('  + docs/e.md (M,G)')).toBe(true);
+    expect(logs.every((l) => !l.includes('docs/e.md (M,I)'))).toBe(true);
+  });
+
+  it('renders unmanaged and gitignored suffix when only gitignore is true', async () => {
+    const logs = await runWithEvent({
+      type: 'file-added',
+      packageName: 'pkg',
+      file: 'docs/f.md',
+      managed: false,
+      gitignore: true,
+    });
+    expect(logs.includes('  + docs/f.md (U,I)')).toBe(true);
+  });
+
+  it('renders unmanaged and tracked suffix when neither flag is true', async () => {
+    const logs = await runWithEvent({
+      type: 'file-added',
+      packageName: 'pkg',
+      file: 'docs/g.md',
+      managed: false,
+      gitignore: false,
+    });
+    expect(logs.includes('  + docs/g.md (U,G)')).toBe(true);
   });
 });
 

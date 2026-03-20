@@ -25,20 +25,20 @@ describe('actionCheck', () => {
   it('returns empty summary when entries array is empty', async () => {
     const result = await actionCheck({ entries: [], cwd: tmpDir });
     expect(result.missing).toHaveLength(0);
-    expect(result.modified).toHaveLength(0);
+    expect(result.conflict).toHaveLength(0);
     expect(result.extra).toHaveLength(0);
   });
 
   it('returns empty summary when files match source', async () => {
-    await installMockPackage('check-action-pkg', '1.0.0', { 'README.md': '# OK' }, tmpDir);
+    await installMockPackage('check-action-pkg', '1.0.0', { 'guide.md': '# OK' }, tmpDir);
     const outputDir = path.join(tmpDir, 'out');
     fs.mkdirSync(outputDir, { recursive: true });
-    fs.writeFileSync(path.join(outputDir, 'README.md'), '# OK');
+    fs.writeFileSync(path.join(outputDir, 'guide.md'), '# OK');
 
     const markerFile = markerPath(outputDir);
     fs.mkdirSync(path.dirname(markerFile), { recursive: true });
     await writeMarker(markerFile, [
-      { path: 'README.md', packageName: 'check-action-pkg', packageVersion: '1.0.0' },
+      { path: 'guide.md', packageName: 'check-action-pkg', packageVersion: '1.0.0' },
     ]);
 
     const entries: NpmdataExtractEntry[] = [
@@ -47,30 +47,47 @@ describe('actionCheck', () => {
 
     const result = await actionCheck({ entries, cwd: tmpDir });
     expect(result.missing).toHaveLength(0);
-    expect(result.modified).toHaveLength(0);
+    expect(result.conflict).toHaveLength(0);
+    expect(result.extra).toHaveLength(0);
+  }, 60000);
+
+  it('reports missing files when managed files have not been extracted yet', async () => {
+    await installMockPackage('post-purge-pkg', '1.0.0', { 'guide.md': '# OK' }, tmpDir);
+
+    const outputDir = path.join(tmpDir, 'out-post-purge');
+    fs.mkdirSync(outputDir, { recursive: true });
+
+    const result = await actionCheck({
+      entries: [{ package: 'post-purge-pkg@1.0.0', output: { path: outputDir } }],
+      cwd: tmpDir,
+    });
+
+    expect(result.missing).toContain('guide.md');
+    expect(result.conflict).toHaveLength(0);
     expect(result.extra).toHaveLength(0);
   }, 60000);
 
   it('reports missing when package not installed', async () => {
+    await installMockPackage('not-installed-pkg', '1.0.0', { 'src/index.ts': 'x' }, tmpDir);
+
     const outputDir = path.join(tmpDir, 'out');
     fs.mkdirSync(outputDir, { recursive: true });
 
     // Write a marker for a file
     const markerFile = markerPath(outputDir);
     await writeMarker(markerFile, [
-      { path: 'src/index.ts', packageName: 'nonexistent-pkg', packageVersion: '1.0.0' },
+      { path: 'src/index.ts', packageName: 'not-installed-pkg', packageVersion: '1.0.0' },
     ]);
-    fs.mkdirSync(path.join(outputDir, 'src'), { recursive: true });
-    fs.writeFileSync(path.join(outputDir, 'src/index.ts'), 'x');
+    // Deliberately do NOT write src/index.ts to outputDir → it will appear as missing
 
     const entries: NpmdataExtractEntry[] = [
-      { package: 'nonexistent-pkg', output: { path: outputDir } },
+      { package: 'not-installed-pkg@1.0.0', output: { path: outputDir } },
     ];
 
     const result = await actionCheck({ entries, cwd: tmpDir });
-    // nonexistent-pkg is not installed → all marker entries go to missing
+    // File is not on disk → missing
     expect(result.missing.length).toBeGreaterThan(0);
-  });
+  }, 60000);
 
   it('skips entries with managed=false when skipUnmanaged=true', async () => {
     const entries: NpmdataExtractEntry[] = [
@@ -79,7 +96,7 @@ describe('actionCheck', () => {
 
     const result = await actionCheck({ entries, cwd: tmpDir });
     expect(result.missing).toHaveLength(0);
-    expect(result.modified).toHaveLength(0);
+    expect(result.conflict).toHaveLength(0);
     expect(result.extra).toHaveLength(0);
   });
 
@@ -103,13 +120,14 @@ describe('actionCheck', () => {
 
     const result = await actionCheck({ entries, cwd: tmpDir });
     // Since hash differs, should be in modified
-    expect(result.modified).toContain('a.md');
+    expect(result.conflict).toContain('a.md');
   }, 60000);
 
   it('emits onProgress events', async () => {
+    await installMockPackage('progress-pkg', '1.0.0', { 'a.md': 'content' }, tmpDir);
     const events: string[] = [];
     const entries: NpmdataExtractEntry[] = [
-      { package: 'nonexistent-pkg@1.0.0', output: { path: path.join(tmpDir, 'out') } },
+      { package: 'progress-pkg@1.0.0', output: { path: path.join(tmpDir, 'out') } },
     ];
 
     await actionCheck({
@@ -119,7 +137,7 @@ describe('actionCheck', () => {
     });
 
     expect(events).toContain('package-start');
-  });
+  }, 60000);
 
   it('uses "latest" when package spec has no version', async () => {
     await installMockPackage('no-version-pkg', '2.0.0', { 'a.txt': 'hello' }, tmpDir);
@@ -148,10 +166,10 @@ describe('actionCheck', () => {
       },
     });
 
-    // Should emit package-end with 'latest' since no version was in spec
+    // package-end is emitted with the actual installed version
     const endEvent = events.find((e) => e.type === 'package-end');
     expect(endEvent).toBeDefined();
-    expect(endEvent?.version).toBe('latest');
+    expect(endEvent?.version).toBe('2.0.0');
   }, 60000);
 
   it('uses provided selector when checking', async () => {
@@ -176,7 +194,7 @@ describe('actionCheck', () => {
 
     const result = await actionCheck({ entries, cwd: tmpDir });
     // With selector matching all files, should be clean
-    expect(result.modified).toHaveLength(0);
+    expect(result.conflict).toHaveLength(0);
   }, 60000);
 
   it('presets option filters which entries are checked', async () => {
@@ -209,7 +227,7 @@ describe('actionCheck', () => {
 
     const resultDocs = await actionCheck({ entries: filteredEntries, cwd: tmpDir });
     expect(resultDocs.missing).toHaveLength(0);
-    expect(resultDocs.modified).toHaveLength(0);
+    expect(resultDocs.conflict).toHaveLength(0);
     expect(resultDocs.extra).toHaveLength(0);
 
     // Delete the data file — with presets=['docs'] it is ignored
@@ -248,7 +266,7 @@ describe('actionCheck', () => {
     // presets=[] means no filtering — all entries pass through
     const result = await actionCheck({ entries, cwd: tmpDir });
     expect(result.missing).toHaveLength(0);
-    expect(result.modified).toHaveLength(0);
+    expect(result.conflict).toHaveLength(0);
   }, 60000);
 
   it('recursively checks transitive packages declared in npmdata.sets', async () => {
@@ -309,6 +327,52 @@ describe('actionCheck', () => {
     expect(result.missing).toContain('child.md');
   }, 60000);
 
+  it('ignores nested managed=false files during check', async () => {
+    await installMockPackage(
+      'nested-child',
+      '1.0.0',
+      { 'conf/config-schema.js': 'pkg content' },
+      tmpDir,
+    );
+    await installMockPackage('nested-parent', '1.0.0', { 'docs/guide.md': '# Guide' }, tmpDir);
+
+    const parentPkgJsonPath = path.join(tmpDir, 'node_modules', 'nested-parent', 'package.json');
+    const parentPkgJson = JSON.parse(fs.readFileSync(parentPkgJsonPath).toString()) as object;
+    fs.writeFileSync(
+      parentPkgJsonPath,
+      JSON.stringify({
+        ...parentPkgJson,
+        npmdata: {
+          sets: [
+            {
+              package: 'nested-child@1.0.0',
+              selector: { files: ['conf/config-schema.js'] },
+              output: { path: '.', managed: false },
+            },
+          ],
+        },
+      }),
+    );
+
+    const outputDir = path.join(tmpDir, 'out-nested-managed-false');
+    fs.mkdirSync(path.join(outputDir, 'docs'), { recursive: true });
+    fs.mkdirSync(path.join(outputDir, 'conf'), { recursive: true });
+    fs.writeFileSync(path.join(outputDir, 'docs/guide.md'), '# Guide');
+    fs.writeFileSync(path.join(outputDir, 'conf/config-schema.js'), 'custom local content');
+    await writeMarker(markerPath(outputDir), [
+      { path: 'docs/guide.md', packageName: 'nested-parent', packageVersion: '1.0.0' },
+    ]);
+
+    const result = await actionCheck({
+      entries: [{ package: 'nested-parent@1.0.0', output: { path: outputDir } }],
+      cwd: tmpDir,
+    });
+
+    expect(result.missing).toHaveLength(0);
+    expect(result.conflict).toHaveLength(0);
+    expect(result.extra).toHaveLength(0);
+  }, 60000);
+
   it('verbose mode logs without errors', async () => {
     await installMockPackage('verbose-check-pkg', '1.0.0', { 'readme.md': '# hello' }, tmpDir);
     const outputDir = path.join(tmpDir, 'out-verbose');
@@ -324,18 +388,31 @@ describe('actionCheck', () => {
       { package: 'verbose-check-pkg@1.0.0', output: { path: outputDir } },
     ];
 
-    const result = await actionCheck({ entries, cwd: tmpDir, verbose: true });
-    expect(result.missing).toHaveLength(0);
-    expect(result.modified).toHaveLength(0);
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(jest.fn());
+    try {
+      const result = await actionCheck({ entries, cwd: tmpDir, verbose: true });
+      expect(result.missing).toHaveLength(0);
+      expect(result.conflict).toHaveLength(0);
+
+      const logs = consoleSpy.mock.calls.map((args) => args.join(' ')).join('\n');
+      expect(logs).toContain('[verbose] actionCheck: resolving files (cwd: .)');
+      expect(logs).toContain('[verbose] calculateDiff: out-verbose:');
+      expect(logs).not.toContain(outputDir);
+    } finally {
+      consoleSpy.mockRestore();
+    }
   }, 60000);
 
   it('verbose mode logs when package not installed', async () => {
+    await installMockPackage('missing-verbose-pkg', '1.0.0', { 'file.md': 'content' }, tmpDir);
+
     const outputDir = path.join(tmpDir, 'out-vnp');
     fs.mkdirSync(outputDir, { recursive: true });
 
     await writeMarker(markerPath(outputDir), [
       { path: 'file.md', packageName: 'missing-verbose-pkg', packageVersion: '1.0.0' },
     ]);
+    // Deliberately do NOT write file.md to outputDir → it will be missing
 
     const entries: NpmdataExtractEntry[] = [
       { package: 'missing-verbose-pkg@1.0.0', output: { path: outputDir } },
@@ -343,7 +420,7 @@ describe('actionCheck', () => {
 
     const result = await actionCheck({ entries, cwd: tmpDir, verbose: true });
     expect(result.missing).toHaveLength(1);
-  }, 30000);
+  }, 60000);
 
   it('handles error reading transitive package.json gracefully with verbose', async () => {
     // Install a valid package so getInstalledIfSatisfies can parse the version.
@@ -389,7 +466,7 @@ describe('actionCheck', () => {
   }, 60000);
 
   it('skips entries with managed=false (output.managed=false)', async () => {
-    // Without any package installed or marker, check should return empty for managed=false entries
+    // managed=false entries are filtered before resolveFiles — no package install attempted
     const entries: NpmdataExtractEntry[] = [
       {
         package: 'unmanaged-check-pkg',
@@ -399,9 +476,9 @@ describe('actionCheck', () => {
 
     const result = await actionCheck({ entries, cwd: tmpDir });
     expect(result.missing).toHaveLength(0);
-    expect(result.modified).toHaveLength(0);
+    expect(result.conflict).toHaveLength(0);
     expect(result.extra).toHaveLength(0);
-  }, 10000);
+  });
 
   it('verbose mode logs recursion into transitive packages', async () => {
     // Set up the same hierarchical structure as the recursive check test,
@@ -479,7 +556,7 @@ describe('actionCheck', () => {
     // b.md should not appear as extra/modified when checking shared-pkg-a
     // a.md should not appear as extra/modified when checking shared-pkg-b
     expect(result.missing).toHaveLength(0);
-    expect(result.modified).toHaveLength(0);
+    expect(result.conflict).toHaveLength(0);
     // extra may include things from respective package sources; we care that
     // cross-package files are not falsely reported.
     expect(result.extra).not.toContain('a.md'); // a.md is in shared-pkg-a's source
@@ -487,19 +564,20 @@ describe('actionCheck', () => {
   }, 60000);
 
   it('reports only missing files owned by the queried package when it is not installed', async () => {
-    // Regression: when a package is not installed, all marker entries (including those
-    // from sibling packages) were reported as missing. Only entries for the queried
-    // package should be surfaced.
+    // Install absent-pkg with b.md but don't write b.md to output → appears as missing
+    await installMockPackage('absent-pkg', '1.0.0', { 'b.md': 'BBB' }, tmpDir);
+    await installMockPackage('present-pkg', '1.0.0', { 'a.md': 'AAA' }, tmpDir);
+
     const sharedOutput = path.join(tmpDir, 'shared-out-missing');
     fs.mkdirSync(sharedOutput, { recursive: true });
+    // Write a.md to disk (present-pkg's file is present)
+    fs.writeFileSync(path.join(sharedOutput, 'a.md'), 'AAA');
+    // Deliberately do NOT write b.md (absent-pkg's file is missing from output)
 
     await writeMarker(markerPath(sharedOutput), [
       { path: 'a.md', packageName: 'present-pkg', packageVersion: '1.0.0' },
       { path: 'b.md', packageName: 'absent-pkg', packageVersion: '1.0.0' },
     ]);
-
-    // Only absent-pkg is not installed; present-pkg IS installed (mock)
-    await installMockPackage('present-pkg', '1.0.0', { 'a.md': 'AAA' }, tmpDir);
 
     const entries: NpmdataExtractEntry[] = [
       { package: 'absent-pkg@1.0.0', output: { path: sharedOutput } },

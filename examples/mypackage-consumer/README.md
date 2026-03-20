@@ -4,7 +4,7 @@ This is an example **consumer** project. It installs `example-files-package` (th
 
 ## How it works
 
-`example-files-package` was prepared with `npmdata init`, so it ships a `bin/npmdata.js` entry point. After installing the package, consumers can call that script directly — no separate `npmdata` invocation needed:
+`example-files-package` was prepared with `npmdata init`, so it ships a `bin/npmdata.js` entry point. After installing the package, consumers can call that script directly — no separate `npmdata` invocation needed. That packaged CLI reads the publisher package's own `npmdata.sets`, including package-less self entries and any external dependency entries:
 
 ```sh
 # extract only docs files (.gitignore entries are written by default)

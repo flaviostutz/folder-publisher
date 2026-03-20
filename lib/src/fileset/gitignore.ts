@@ -13,6 +13,18 @@ export async function addToGitignore(markerDir: string, paths: string[]): Promis
 }
 
 /**
+ * Read the paths currently listed in the npmdata-managed section.
+ */
+export function readManagedGitignoreEntries(markerDir: string): Set<string> {
+  const gitignorePath = path.join(markerDir, GITIGNORE_FILE);
+  if (!fs.existsSync(gitignorePath)) return new Set();
+
+  const existingContent = fs.readFileSync(gitignorePath, 'utf8');
+  const { managedEntries } = parseSections(existingContent);
+  return new Set(managedEntries);
+}
+
+/**
  * Remove specific paths from the npmdata-managed section in .gitignore.
  * Removes the entire section if no paths remain. Deletes the file if empty.
  */

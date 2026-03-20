@@ -112,7 +112,7 @@ describe('actionInit', () => {
     expect(pkgJson.npmdata.sets[1].selector.files).toEqual(['conf/globals.js']);
   });
 
-  it('creates self-referencing set as first entry in npmdata sets', async () => {
+  it('creates package-less self set as first entry in npmdata sets', async () => {
     const outputDir = path.join(tmpDir, 'self-pkg');
     await actionInit(outputDir, false, {
       files: ['docs/**'],
@@ -120,7 +120,7 @@ describe('actionInit', () => {
     });
 
     const pkgJson = JSON.parse(fs.readFileSync(path.join(outputDir, 'package.json')).toString());
-    expect(pkgJson.npmdata.sets[0].package).toBe('self-pkg');
+    expect(pkgJson.npmdata.sets[0].package).toBeUndefined();
     expect(pkgJson.npmdata.sets[1].package).toBe('some-pkg@1');
   });
 

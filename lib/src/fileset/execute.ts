@@ -9,7 +9,7 @@ import {
   ExecuteResult,
   ManagedFileMetadata,
 } from '../types';
-import { ensureDir } from '../utils';
+import { ensureDir, formatDisplayPath } from '../utils';
 import { applyContentReplacements } from '../package/content-replacements';
 
 import { writeMarker, markerPath } from './markers';
@@ -47,6 +47,7 @@ export async function execute(
   const dryRun = outputConfig.dryRun ?? false;
   const unmanaged = outputConfig.managed === false;
   const updateGitignore = outputConfig.gitignore !== false;
+  const displayBaseDir = _cwd ?? process.cwd();
 
   const result: ExecuteResult = {
     newlyCreated: [],
@@ -59,7 +60,9 @@ export async function execute(
   // Write toAdd files
   for (const op of map.toAdd) {
     if (verbose) {
-      console.log(`[verbose] execute: adding file ${op.destPath}`);
+      console.log(
+        `[verbose] execute: adding file ${formatDisplayPath(op.destPath, displayBaseDir)}`,
+      );
     }
     if (!dryRun) {
       ensureDir(path.dirname(op.destPath));
@@ -79,7 +82,9 @@ export async function execute(
   // Write toModify files
   for (const op of map.toModify) {
     if (verbose) {
-      console.log(`[verbose] execute: modifying file ${op.destPath}`);
+      console.log(
+        `[verbose] execute: modifying file ${formatDisplayPath(op.destPath, displayBaseDir)}`,
+      );
     }
     if (!dryRun) {
       ensureDir(path.dirname(op.destPath));
@@ -123,7 +128,7 @@ export async function execute(
 
     if (verbose) {
       console.log(
-        `[verbose] execute: writing marker file at ${marker} (${updatedEntries.length} entries)`,
+        `[verbose] execute: writing marker file at ${formatDisplayPath(marker, displayBaseDir)} (${updatedEntries.length} entries)`,
       );
     }
     await writeMarker(marker, updatedEntries);
@@ -132,7 +137,7 @@ export async function execute(
       const managedPaths = updatedEntries.map((m) => m.path);
       if (verbose) {
         console.log(
-          `[verbose] execute: updating .gitignore at ${outputDir} (${managedPaths.length} paths)`,
+          `[verbose] execute: updating .gitignore at ${formatDisplayPath(outputDir, displayBaseDir)} (${managedPaths.length} paths)`,
         );
       }
       await addToGitignore(outputDir, managedPaths);
@@ -143,7 +148,7 @@ export async function execute(
   if (!dryRun && outputConfig.contentReplacements && outputConfig.contentReplacements.length > 0) {
     if (verbose) {
       console.log(
-        `[verbose] execute: applying ${outputConfig.contentReplacements.length} content replacement(s) in ${outputDir}`,
+        `[verbose] execute: applying ${outputConfig.contentReplacements.length} content replacement(s) in ${formatDisplayPath(outputDir, displayBaseDir)}`,
       );
     }
     await applyContentReplacements(outputDir, outputConfig.contentReplacements);
@@ -160,7 +165,7 @@ export async function deleteFiles(filePaths: string[], verbose?: boolean): Promi
   for (const filePath of filePaths) {
     if (!fs.existsSync(filePath)) continue;
     if (verbose) {
-      console.log(`[verbose] execute: deleting file ${filePath}`);
+      console.log(`[verbose] execute: deleting file ${formatDisplayPath(filePath)}`);
     }
     try {
       fs.chmodSync(filePath, 0o644);
@@ -168,7 +173,9 @@ export async function deleteFiles(filePaths: string[], verbose?: boolean): Promi
     } catch (error) {
       // Ignore errors for files that could not be deleted
       if (verbose) {
-        console.error(`[verbose] execute: failed to delete ${filePath}: ${error}`);
+        console.error(
+          `[verbose] execute: failed to delete ${formatDisplayPath(filePath)}: ${error}`,
+        );
       }
     }
   }

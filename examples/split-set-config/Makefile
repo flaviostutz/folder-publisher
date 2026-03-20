@@ -22,10 +22,9 @@ test: clean install
 	test -e output/docs/adrs/adr-001-sample1.md
 	# The separately-configured file is also extracted (from set 2)
 	test -e output/.configs/database.config.json
-	# eslint@8 conf/config-schema.js is extracted but managed=false (set 3)
-	test -e output/conf/config-schema.js
-	# temper with config-schema and because it's not managed, check should pass
-	echo "custom local content" > output/conf/config-schema.js
+	# check .gitignore
+	grep -e ".configs/app.config.json" output/.gitignore
+	! grep -e "output/.configs/database.config.json" output/.gitignore
 	# check: all managed files should be in sync
 	pnpm exec npmdata check --config myconfig.json
 
@@ -50,17 +49,18 @@ test: clean install
 	pnpm exec npmdata check --config myconfig.json
 
 	# --- Test 3: purge removes managed files but leaves the managed=false file behind ---
-	pnpm exec npmdata purge --config myconfig.json --verbose
+	pnpm exec npmdata purge --config myconfig.json
 	# managed files are removed
 	test ! -e output/.configs/app.config.json
 	test ! -e output/docs/README.md
 	test ! -e output/conf/globals.js
 	# database.config.json is managed=false, so it survives purge
 	test -e output/.configs/database.config.json
-	# conf/config-schema.js is managed=false (set 3), so it also survives purge
-	test -e output/conf/config-schema.js
 
-	# check: all managed files should be in sync
+	# check should now fail because default-managed files are missing after purge
+	! pnpm exec npmdata check --config myconfig.json
+
+	pnpm exec npmdata extract --config myconfig.json
 	pnpm exec npmdata check --config myconfig.json
 
 	@echo "All split-set config tests passed"

@@ -3,6 +3,7 @@
 import { NpmdataConfig, ProgressEvent } from '../../types';
 import { parseArgv, resolveEntriesFromConfigAndArgs } from '../argv';
 import { printUsage } from '../usage';
+import { formatProgressFile } from '../progress';
 import { actionExtract } from '../../package/action-extract';
 import { spawnWithLog } from '../../utils';
 
@@ -41,9 +42,9 @@ export async function runExtract(
     verbose: parsed.verbose,
     onProgress: (event: ProgressEvent) => {
       if (entries[0]?.silent) return;
-      if (event.type === 'file-added') console.log(`  + ${event.file}`);
-      else if (event.type === 'file-modified') console.log(`  ~ ${event.file}`);
-      else if (event.type === 'file-deleted') console.log(`  - ${event.file}`);
+      if (event.type === 'file-added') console.log(`  + ${formatProgressFile(event)}`);
+      else if (event.type === 'file-modified') console.log(`  ~ ${formatProgressFile(event)}`);
+      else if (event.type === 'file-deleted') console.log(`  - ${formatProgressFile(event)}`);
     },
   });
 

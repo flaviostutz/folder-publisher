@@ -15,7 +15,7 @@ jest.mock('../../package/action-check', () => ({
 const mockPrintUsage = printUsage as jest.MockedFunction<typeof printUsage>;
 const mockActionCheck = actionCheck as jest.MockedFunction<typeof actionCheck>;
 
-const NO_DRIFT = { missing: [], modified: [], extra: [] };
+const NO_DRIFT = { missing: [], conflict: [], extra: [] };
 
 const CONFIG: NpmdataConfig = {
   sets: [{ package: 'my-pkg@1.0.0', output: { path: './out', gitignore: false } }],
@@ -95,7 +95,7 @@ describe('runCheck — no drift', () => {
 
 describe('runCheck — drift detected', () => {
   it('throws when missing files found', async () => {
-    mockActionCheck.mockResolvedValue({ missing: ['docs/a.md'], modified: [], extra: [] });
+    mockActionCheck.mockResolvedValue({ missing: ['docs/a.md'], conflict: [], extra: [] });
     const spy = jest.spyOn(console, 'log').mockImplementation(() => {});
     await expect(runCheck(CONFIG, [], '/cwd')).rejects.toThrow(
       'Check failed: some managed files are out of sync',
@@ -103,8 +103,8 @@ describe('runCheck — drift detected', () => {
     spy.mockRestore();
   });
 
-  it('throws when modified files found', async () => {
-    mockActionCheck.mockResolvedValue({ missing: [], modified: ['docs/b.md'], extra: [] });
+  it('throws when conflict files found', async () => {
+    mockActionCheck.mockResolvedValue({ missing: [], conflict: ['docs/b.md'], extra: [] });
     const spy = jest.spyOn(console, 'log').mockImplementation(() => {});
     await expect(runCheck(CONFIG, [], '/cwd')).rejects.toThrow(
       'Check failed: some managed files are out of sync',
@@ -113,7 +113,7 @@ describe('runCheck — drift detected', () => {
   });
 
   it('throws when extra files found', async () => {
-    mockActionCheck.mockResolvedValue({ missing: [], modified: [], extra: ['docs/c.md'] });
+    mockActionCheck.mockResolvedValue({ missing: [], conflict: [], extra: ['docs/c.md'] });
     const spy = jest.spyOn(console, 'log').mockImplementation(() => {});
     await expect(runCheck(CONFIG, [], '/cwd')).rejects.toThrow(
       'Check failed: some managed files are out of sync',
@@ -124,7 +124,7 @@ describe('runCheck — drift detected', () => {
   it('logs each missing file prefixed with "missing:"', async () => {
     mockActionCheck.mockResolvedValue({
       missing: ['docs/a.md', 'docs/b.md'],
-      modified: [],
+      conflict: [],
       extra: [],
     });
     const logs: string[] = [];
@@ -137,10 +137,10 @@ describe('runCheck — drift detected', () => {
     expect(logs).toContain('missing: docs/b.md');
   });
 
-  it('logs each modified file prefixed with "modified:"', async () => {
+  it('logs each conflict file prefixed with "conflict:"', async () => {
     mockActionCheck.mockResolvedValue({
       missing: [],
-      modified: ['docs/c.md'],
+      conflict: ['docs/c.md'],
       extra: [],
     });
     const logs: string[] = [];
@@ -149,13 +149,13 @@ describe('runCheck — drift detected', () => {
     });
     await expect(runCheck(CONFIG, [], '/cwd')).rejects.toThrow();
     spy.mockRestore();
-    expect(logs).toContain('modified: docs/c.md');
+    expect(logs).toContain('conflict: docs/c.md');
   });
 
   it('logs each extra file prefixed with "extra:"', async () => {
     mockActionCheck.mockResolvedValue({
       missing: [],
-      modified: [],
+      conflict: [],
       extra: ['docs/d.md'],
     });
     const logs: string[] = [];

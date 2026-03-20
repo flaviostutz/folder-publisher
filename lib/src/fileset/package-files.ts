@@ -34,6 +34,10 @@ export async function enumeratePackageFiles(
   pkgPath: string,
   selector: SelectorConfig,
 ): Promise<string[]> {
+  if (selector.files && selector.files.length === 0) {
+    return [];
+  }
+
   // `selector.presets` is purely for filtering recursive npmdata.sets; it has no effect on
   // which files are selected from the package itself.  When presets is specified without an
   // explicit `files` pattern the caller intends only set-level recursion, so we return an
@@ -42,6 +46,7 @@ export async function enumeratePackageFiles(
     return [];
   }
   const filePatterns = selector.files ?? DEFAULT_FILE_PATTERNS;
+  const filePatternGroups = selector.filePatternGroups ?? (selector.files ? [selector.files] : []);
   const activeDefaultExcludes = DEFAULT_EXCLUDE_PATTERNS.filter((p) => !filePatterns.includes(p));
   const excludePatterns = [...activeDefaultExcludes, ...(selector.exclude ?? [])];
   const contentRegexes = (selector.contentRegexes ?? []).map((r) => new RegExp(r));
@@ -65,6 +70,7 @@ export async function enumeratePackageFiles(
 
       // Apply glob filter
       if (!matchesFilePatterns(relPath, filePatterns)) continue;
+      if (filePatternGroups.some((group) => !matchesFilePatterns(relPath, group))) continue;
 
       // Apply exclude patterns
       if (excludePatterns.some((pat) => minimatch(relPath, pat, { dot: true }))) continue;
@@ -91,6 +97,8 @@ export async function enumeratePackageFiles(
  * Handles negative patterns (prefix !) and positive patterns.
  */
 export function matchesFilePatterns(relPath: string, patterns: string[]): boolean {
+  if (patterns.length === 0) return false;
+
   const includes = patterns.filter((p) => !p.startsWith('!'));
   const excludes = patterns.filter((p) => p.startsWith('!')).map((p) => p.slice(1));
 

@@ -12,6 +12,11 @@ export type { ListOptions } from './package/action-list';
 export { actionPurge } from './package/action-purge';
 export type { PurgeOptions, PurgeSummary } from './package/action-purge';
 
+export { resolveFiles } from './package/resolve-files';
+export type { ResolveOptions } from './package/resolve-files';
+
+export { calculateDiff } from './package/calculate-diff';
+
 export { binpkg } from './cli/binpkg';
 
 export type {
@@ -28,4 +33,8 @@ export type {
   CheckResult,
   PurgeResult,
   ExecuteResult,
+  ResolvedFile,
+  DiffStatus,
+  DiffEntry,
+  DiffResult,
 } from './types';

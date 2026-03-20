@@ -5,6 +5,7 @@ import path from 'node:path';
 import { installMockPackage } from '../fileset/test-utils';
 import { readMarker } from '../fileset/markers';
 import { MARKER_FILE } from '../fileset/constants';
+import { ProgressEvent } from '../types';
 
 import { actionExtract } from './action-extract';
 
@@ -142,20 +143,20 @@ describe('actionExtract', () => {
     expect(fs.readFileSync(path.join(outputDir, 'guide.md'), 'utf8')).toBe('user content');
   }, 60000);
 
-  it('skips already-visited entries to break recursion cycles', async () => {
+  it('deduplicates identical entries to avoid double extraction', async () => {
     await installMockPackage('circ-pkg', '1.0.0', { 'guide.md': 'content' }, tmpDir);
 
-    // Pre-populate visitedEntries with the key for circ-pkg (no selector)
-    const visited = new Set(['circ-pkg|{}']);
+    // Passing the same entry twice should result in extraction happening only once
+    const outputDir = path.join(tmpDir, 'output');
     const result = await actionExtract({
       entries: [
-        { package: 'circ-pkg', output: { path: path.join(tmpDir, 'output'), gitignore: false } },
+        { package: 'circ-pkg', output: { path: outputDir, gitignore: false } },
+        { package: 'circ-pkg', output: { path: outputDir, gitignore: false } },
       ],
       cwd: tmpDir,
-      visitedEntries: visited,
     });
-    // Entry was skipped, nothing should have been extracted
-    expect(result.added).toBe(0);
+    // Guide.md should be extracted once, not twice
+    expect(result.added).toBe(1);
     expect(result.modified).toBe(0);
   }, 60000);
 
@@ -309,13 +310,11 @@ describe('actionExtract', () => {
         npmdata: {
           sets: [
             {
-              package: 'self-ref-pkg',
               presets: ['docs'],
               selector: { files: ['docs/**'] },
               output: { path: '.', gitignore: false },
             },
             {
-              package: 'self-ref-pkg',
               presets: ['data'],
               selector: { files: ['data/**'] },
               output: { path: '.', gitignore: false },
@@ -362,13 +361,11 @@ describe('actionExtract', () => {
         npmdata: {
           sets: [
             {
-              package: 'multi-preset-pkg',
               presets: ['docs'],
               selector: { files: ['docs/**'] },
               output: { path: '.', gitignore: false },
             },
             {
-              package: 'multi-preset-pkg',
               presets: ['data'],
               selector: { files: ['data/**'] },
               output: { path: '.', gitignore: false },
@@ -561,6 +558,27 @@ describe('actionExtract', () => {
     expect(events).toContain('package-start');
     expect(events).toContain('package-end');
     expect(events).toContain('file-added');
+  }, 60000);
+
+  it('emits managed and gitignore metadata on file progress events', async () => {
+    await installMockPackage('event-flags-pkg', '1.0.0', { 'readme.md': '# Readme' }, tmpDir);
+
+    const outputDir = path.join(tmpDir, 'output-flags');
+    const events: ProgressEvent[] = [];
+
+    await actionExtract({
+      entries: [{ package: 'event-flags-pkg', output: { path: outputDir } }],
+      cwd: tmpDir,
+      onProgress: (e) => events.push(e),
+    });
+
+    const fileAdded = events.find((e) => e.type === 'file-added');
+    expect(fileAdded).toMatchObject({
+      type: 'file-added',
+      file: 'readme.md',
+      managed: true,
+      gitignore: true,
+    });
   }, 60000);
 
   it('emits file-skipped event when file is unchanged on re-extraction', async () => {

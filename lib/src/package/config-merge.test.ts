@@ -1,11 +1,15 @@
 import { mergeSelectorConfig, mergeOutputConfig } from './config-merge';
 
 describe('mergeSelectorConfig', () => {
-  it('intersects file patterns when both have files', () => {
+  it('preserves both file pattern groups when both have files', () => {
     const parent = { files: ['**/*.md', '**/*.ts', 'README.md'] };
     const child = { files: ['**/*.md', 'README.md', '**/*.json'] };
     const result = mergeSelectorConfig(parent, child);
-    expect(result.files!.sort()).toEqual(['**/*.md', 'README.md'].sort());
+    expect(result.files!.sort()).toEqual(['**/*.md', '**/*.ts', 'README.md', '**/*.json'].sort());
+    expect(result.filePatternGroups).toEqual([
+      ['**/*.md', '**/*.ts', 'README.md'],
+      ['**/*.md', 'README.md', '**/*.json'],
+    ]);
   });
 
   it('uses parent files when child has none', () => {
@@ -32,6 +36,13 @@ describe('mergeSelectorConfig', () => {
     const child = { contentRegexes: ['bar'] };
     const result = mergeSelectorConfig(parent, child);
     expect(result.contentRegexes).toEqual(['foo', 'bar']);
+  });
+
+  it('concatenates exclude patterns from both configs', () => {
+    const parent = { exclude: ['docs/private/**'] };
+    const child = { exclude: ['docs/drafts/**'] };
+    const result = mergeSelectorConfig(parent, child);
+    expect(result.exclude).toEqual(['docs/private/**', 'docs/drafts/**']);
   });
 
   it('uses only parent contentRegexes when child has none', () => {
@@ -71,8 +82,8 @@ describe('mergeOutputConfig', () => {
   });
 
   it('normalises double slashes in paths', () => {
-    const caller = { path: 'output/' };
-    const child = { path: '/guides' };
+    const caller = { path: 'output' };
+    const child = { path: 'guides' };
     const result = mergeOutputConfig(caller, child);
     expect(result.path).toBe('output/guides');
   });

@@ -105,7 +105,7 @@ async function runPackageManagerCommand(
 ): Promise<void> {
   if (verbose) {
     console.log(
-      `[verbose] Running package manager command for spec "${spec}" with type "${commandType}" in directory "${workDir}"`,
+      `[verbose] Running package manager command for spec "${spec}" with type "${commandType}" in directory "${formatDisplayPath(workDir, workDir)}"`,
     );
   }
   const detected = await detect({ cwd: workDir });
@@ -146,12 +146,13 @@ export async function installOrUpgradePackage(
   cwd?: string,
   verbose?: boolean,
 ): Promise<string> {
+  const workDir = cwd ?? process.cwd();
+
   if (verbose) {
     console.log(
-      `[verbose] installing/upgrading package="${name}", version="${version}", upgrade=${upgrade}, cwd="${cwd}"`,
+      `[verbose] installing/upgrading package="${name}", version="${version}", upgrade=${upgrade}, cwd="${formatDisplayPath(workDir, workDir)}"`,
     );
   }
-  const workDir = cwd ?? process.cwd();
   const spec = version ? `${name}@${version}` : `${name}@latest`;
 
   // Check if already installed with a satisfying version (skip install if not upgrading)
@@ -170,7 +171,9 @@ export async function installOrUpgradePackage(
   const pkgJsonPath = path.join(workDir, 'package.json');
   if (!fs.existsSync(pkgJsonPath)) {
     if (verbose) {
-      console.log(`[verbose] No package.json found in ${workDir}, initializing one`);
+      console.log(
+        `[verbose] No package.json found in ${formatDisplayPath(workDir, workDir)}, initializing one`,
+      );
     }
     initTempPackageJson(workDir, verbose);
 
@@ -184,7 +187,7 @@ export async function installOrUpgradePackage(
     const selfSpec = `${selfPkg.name}@${selfPkg.version}`;
     if (verbose) {
       console.log(
-        `[verbose] reinstalling self (${selfSpec}) in dir ${workDir} to ensure it's upgraded`,
+        `[verbose] reinstalling self (${selfSpec}) in dir ${formatDisplayPath(workDir, workDir)} to ensure it's upgraded`,
       );
     }
     await runPackageManagerCommand(selfSpec, 'add', workDir, verbose);
@@ -202,13 +205,17 @@ export async function installOrUpgradePackage(
     // Fall back to Node.js module resolution, which handles pnpm workspaces where the
     // package may be installed in the workspace root's node_modules rather than locally.
     if (verbose) {
-      console.warn(`[verbose] ${pkgPath} not found, trying require.resolve fallback`);
+      console.warn(
+        `[verbose] ${formatDisplayPath(pkgPath, workDir)} not found, trying require.resolve fallback`,
+      );
     }
     try {
       const resolved = require.resolve(`${name}/package.json`, { paths: [workDir] });
       pkgPath = path.dirname(resolved);
       if (verbose) {
-        console.log(`[verbose] resolved ${name} via require.resolve to ${pkgPath}`);
+        console.log(
+          `[verbose] resolved ${name} via require.resolve to ${formatDisplayPath(pkgPath, workDir)}`,
+        );
       }
     } catch {
       throw new Error(
@@ -243,6 +250,19 @@ export function ensureDir(dir: string): void {
 }
 
 /**
+ * Format a path for logs relative to the current working directory used by the action.
+ */
+export function formatDisplayPath(targetPath: string, cwd?: string): string {
+  const baseDir = path.resolve(cwd ?? process.cwd());
+  const resolvedTarget = path.isAbsolute(targetPath)
+    ? path.normalize(targetPath)
+    : path.resolve(baseDir, targetPath);
+  const relativePath = path.relative(baseDir, resolvedTarget);
+
+  return relativePath.length === 0 ? '.' : relativePath;
+}
+
+/**
  * Filter entries by requested presets.
  * When no presets are requested, all entries pass through.
  */
@@ -268,7 +288,7 @@ export function initTempPackageJson(workDir: string, verbose?: boolean): void {
   const pkgJsonPath = path.join(workDir, 'package.json');
   if (verbose) {
     console.log(
-      `[verbose] extract: creating temporary package.json at ${pkgJsonPath} for this extraction`,
+      `[verbose] extract: creating temporary package.json at ${formatDisplayPath(pkgJsonPath, workDir)} for this extraction`,
     );
   }
 
@@ -305,7 +325,7 @@ export function cleanupTempPackageJson(cwd: string, verbose?: boolean): void {
 
   if (verbose) {
     console.log(
-      `[verbose] extract: removing temporary package.json and node_modules at ${tempPkgJsonPath} created for this extraction`,
+      `[verbose] extract: removing temporary package.json and node_modules at ${formatDisplayPath(tempPkgJsonPath, cwd)} created for this extraction`,
     );
   }
   // remove package.json
@@ -338,7 +358,9 @@ export function spawnWithLog(
 ): ReturnType<typeof spawnSync> {
   const scriptCmd = `${command} ${args.join(' ')}`;
   if (verbose) {
-    console.log(`[verbose] Running command: ${scriptCmd} in ${workDir}`);
+    console.log(
+      `[verbose] Running command: ${scriptCmd} in ${formatDisplayPath(workDir, workDir)}`,
+    );
   }
   const result = spawnSync(scriptCmd, undefined, {
     cwd: workDir,

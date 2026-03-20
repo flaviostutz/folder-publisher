@@ -25,6 +25,8 @@ This updates `package.json` with:
 - `bin` — a thin `bin/npmdata.js` script consumers can call directly
 - `dependencies` — pins the `npmdata` runtime needed by that script
 
+When you declare the package's own files in `package.json#npmdata.sets`, the self entry should omit `package`. External dependency entries keep the `package` field.
+
 Then publish as any normal npm package:
 
 ```sh

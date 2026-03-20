@@ -89,12 +89,6 @@ describe('runPurge — options forwarding', () => {
     expect(callArg.cwd).toBe('/my/cwd');
   });
 
-  it('passes --presets values to actionPurge', async () => {
-    await runPurge(CONFIG, ['--presets', 'docs,api'], '/cwd');
-    const callArg = mockActionPurge.mock.calls[0][0];
-    expect(callArg.presets).toEqual(['docs', 'api']);
-  });
-
   it('passes dryRun=true when --dry-run flag given', async () => {
     await runPurge(CONFIG, ['--dry-run'], '/cwd');
     const callArg = mockActionPurge.mock.calls[0][0];
@@ -105,12 +99,6 @@ describe('runPurge — options forwarding', () => {
     await runPurge(CONFIG, ['--verbose'], '/cwd');
     const callArg = mockActionPurge.mock.calls[0][0];
     expect(callArg.verbose).toBe(true);
-  });
-
-  it('passes empty presets array when --presets not given', async () => {
-    await runPurge(CONFIG, [], '/cwd');
-    const callArg = mockActionPurge.mock.calls[0][0];
-    expect(callArg.presets).toEqual([]);
   });
 });
 
@@ -138,13 +126,21 @@ describe('runPurge — onProgress handler', () => {
       type: 'file-deleted',
       packageName: 'my-pkg',
       file: 'docs/a.md',
+      managed: true,
+      gitignore: true,
     });
-    expect(logs.includes('  - docs/a.md')).toBe(true);
+    expect(logs.includes('  - docs/a.md (M,I)')).toBe(true);
   });
 
   it('suppresses progress output when --silent flag given', async () => {
     const logs = await runWithEvent(
-      { type: 'file-deleted', packageName: 'my-pkg', file: 'docs/b.md' },
+      {
+        type: 'file-deleted',
+        packageName: 'my-pkg',
+        file: 'docs/b.md',
+        managed: true,
+        gitignore: true,
+      },
       ['--silent'],
     );
     expect(logs.every((l) => !l.startsWith('  -'))).toBe(true);
@@ -155,9 +151,45 @@ describe('runPurge — onProgress handler', () => {
       type: 'file-added',
       packageName: 'my-pkg',
       file: 'docs/c.md',
+      managed: true,
+      gitignore: true,
     });
     // only the summary line "Purge complete..." is expected, not a progress line
     expect(logs.every((l) => !l.includes('docs/c.md'))).toBe(true);
+  });
+
+  it('renders managed-only suffix when only managed is true', async () => {
+    const logs = await runWithEvent({
+      type: 'file-deleted',
+      packageName: 'my-pkg',
+      file: 'docs/d.md',
+      managed: true,
+      gitignore: false,
+    });
+    expect(logs.includes('  - docs/d.md (M,G)')).toBe(true);
+    expect(logs.every((l) => !l.includes('docs/d.md (M,I)'))).toBe(true);
+  });
+
+  it('renders unmanaged and gitignored suffix when only gitignore is true', async () => {
+    const logs = await runWithEvent({
+      type: 'file-deleted',
+      packageName: 'my-pkg',
+      file: 'docs/e.md',
+      managed: false,
+      gitignore: true,
+    });
+    expect(logs.includes('  - docs/e.md (U,I)')).toBe(true);
+  });
+
+  it('renders unmanaged and tracked suffix when neither flag is true', async () => {
+    const logs = await runWithEvent({
+      type: 'file-deleted',
+      packageName: 'my-pkg',
+      file: 'docs/f.md',
+      managed: false,
+      gitignore: false,
+    });
+    expect(logs.includes('  - docs/f.md (U,G)')).toBe(true);
   });
 });
 

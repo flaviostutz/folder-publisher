@@ -16,6 +16,7 @@ import {
   isBinaryFile,
   filterEntriesByPresets,
   ensureDir,
+  formatDisplayPath,
   getInstalledPackagePath,
   getInstalledIfSatisfies,
   installOrUpgradePackage,
@@ -216,6 +217,22 @@ describe('ensureDir', () => {
   it('does nothing when the directory already exists', () => {
     ensureDir(tmpDir);
     expect(fs.existsSync(tmpDir)).toBe(true);
+  });
+});
+
+describe('formatDisplayPath', () => {
+  it('returns dot when target matches cwd', () => {
+    expect(formatDisplayPath('/tmp/work', '/tmp/work')).toBe('.');
+  });
+
+  it('returns relative paths for targets under cwd', () => {
+    expect(formatDisplayPath('/tmp/work/output/docs/guide.md', '/tmp/work')).toBe(
+      'output/docs/guide.md',
+    );
+  });
+
+  it('preserves relative traversal for targets outside cwd', () => {
+    expect(formatDisplayPath('/tmp/other/file.txt', '/tmp/work')).toBe('../other/file.txt');
   });
 });
 

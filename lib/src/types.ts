@@ -26,6 +26,10 @@ export type SelectorConfig = {
    */
   files?: string[];
   /**
+   * Internal: grouped file patterns that must all match during recursive selector merges.
+   */
+  filePatternGroups?: string[][];
+  /**
    * Glob patterns; files matching any of these are excluded even if they match `files`.
    */
   exclude?: string[];
@@ -120,10 +124,19 @@ export type ContentReplacementConfig = {
 
 /**
  * One entry in the npmdata.sets array. Represents a single extraction target.
+ *
+ * Two variants:
+ *  - Self-package entry  (no `package` field): leaf of recursion; files come from the
+ *    package whose npmdata.sets contains this entry.
+ *  - External-package entry (`package` field set): recurses into the named package's own
+ *    npmdata.sets (or enumerates its files directly when it has no sets).
  */
 export type NpmdataExtractEntry = {
-  /** Flat package spec string ("my-pkg@^1.2.3"). Parsed to PackageConfig internally. */
-  package: string;
+  /**
+   * Flat package spec string ("my-pkg@^1.2.3"). When absent the entry is a
+   * self-package entry — files are drawn from the package that owns this sets array.
+   */
+  package?: string;
   /** Where/how to write files. Defaults to current directory with no special flags. */
   output?: OutputConfig;
   /** Which files to select and install options. */
@@ -212,13 +225,18 @@ export type ManagedFileMetadata = {
 /**
  * Event emitted by extract/check/purge for UI progress reporting.
  */
+export type FileProgressEvent = {
+  type: 'file-added' | 'file-modified' | 'file-deleted' | 'file-skipped';
+  packageName: string;
+  file: string;
+  managed: boolean;
+  gitignore: boolean;
+};
+
 export type ProgressEvent =
   | { type: 'package-start'; packageName: string; packageVersion: string }
   | { type: 'package-end'; packageName: string; packageVersion: string }
-  | { type: 'file-added'; packageName: string; file: string }
-  | { type: 'file-modified'; packageName: string; file: string }
-  | { type: 'file-deleted'; packageName: string; file: string }
-  | { type: 'file-skipped'; packageName: string; file: string };
+  | FileProgressEvent;
 
 /**
  * Result of a check operation for a single fileset.
@@ -258,4 +276,71 @@ export type ExecuteResult = {
   deleted: number;
   /** Number of files skipped. */
   skipped: number;
+};
+
+/**
+ * A single resolved file produced by resolveFiles().
+ * Carries all metadata needed to apply disk changes without further config lookups.
+ */
+export type ResolvedFile = {
+  /** Relative path within the output directory. */
+  relPath: string;
+  /** Absolute path of the source file in the installed package directory. */
+  sourcePath: string;
+  /** Name of the npm package that owns this file. */
+  packageName: string;
+  /** Installed version of the source package. */
+  packageVersion: string;
+  /** Absolute path of the output directory where the file should be written. */
+  outputDir: string;
+  /** Whether the file should be tracked in the .npmdata marker. Default: true. */
+  managed: boolean;
+  /** Whether the file should be added to .gitignore. Default: true. */
+  gitignore: boolean;
+  /** Whether to overwrite an existing unmanaged file. Default: false. */
+  force: boolean;
+  /** Whether to skip files that already exist in the output. Default: false. */
+  ignoreIfExisting: boolean;
+  /** Content replacement rules applied to this file before comparison. */
+  contentReplacements: ContentReplacementConfig[];
+  /** Symlink operations to apply in the output directory after extraction. */
+  symlinks: SymlinkConfig[];
+};
+
+/** Classification of a single file in the calculateDiff result. */
+export type DiffStatus = 'ok' | 'missing' | 'extra' | 'conflict';
+
+/**
+ * One entry in a DiffResult.
+ * - ok: desired file exists, content and state match
+ * - missing: desired file is absent from the output directory
+ * - extra: managed file in the marker is not present in the desired file list
+ * - conflict: desired file exists but content, managed state, or gitignore state differs
+ */
+export type DiffEntry = {
+  status: DiffStatus;
+  /** Relative path within the output directory. */
+  relPath: string;
+  /** Absolute path to the output directory. */
+  outputDir: string;
+  /** Desired file metadata (absent for 'extra' entries). */
+  desired?: ResolvedFile;
+  /** Existing marker entry (absent for 'missing' entries and unmanaged conflicts). */
+  existing?: ManagedFileMetadata;
+  /** Reasons for conflict (only set for 'conflict' status). */
+  conflictReasons?: Array<'content' | 'managed' | 'gitignore'>;
+};
+
+/**
+ * Aggregate result of calculateDiff().
+ */
+export type DiffResult = {
+  /** Desired files that already match the output directory. */
+  ok: DiffEntry[];
+  /** Desired files absent from the output directory. */
+  missing: DiffEntry[];
+  /** Managed files in the marker that are not in the desired file list. */
+  extra: DiffEntry[];
+  /** Desired files with content, managed-state, or gitignore-state mismatch. */
+  conflict: DiffEntry[];
 };

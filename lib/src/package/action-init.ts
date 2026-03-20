@@ -47,7 +47,6 @@ export async function actionInit(
     };
   }
 
-  const pkgName = (pkgJson.name as string) ?? path.basename(outputDir);
   const filePatterns = config?.files ?? [];
   const externalPackages = config?.packages ?? [];
 
@@ -58,9 +57,8 @@ export async function actionInit(
   const npmFiles = new Set<string>([...filePatterns, 'package.json', 'bin/npmdata.js']);
   pkgJson.files = Array.from(npmFiles);
 
-  // Build npmdata sets: self-package first, then each external package
+  // Build npmdata sets: self entry first (no package field), then external packages
   const selfEntry: NpmdataExtractEntry = {
-    package: pkgName,
     output: { path: '.' },
     ...(filePatterns.length > 0 ? { selector: { files: filePatterns } } : {}),
   };
