@@ -6,7 +6,9 @@
   "bin": "dist/cli/bin.js",
   "types": "dist/index.d.ts",
   "files": [
-    "dist/**",
+    "dist/**/*.js",
+    "dist/**/*.ts",
+    "dist/**/*.map",
     "package.json",
     "README.md",
     "bin/npmdata.js"
