@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.19.0 (2026-03-21)
+
+### Features
+
+* managed symlinks [[16b6646](https://github.com/flaviostutz/npmdata/commit/16b66466625e3373c994c3c156c1f13d490409f4)]
+
+### Maintenance
+
+* release: 0.18.15 [[79ad4ca](https://github.com/flaviostutz/npmdata/commit/79ad4ca6ced95f476c3aa1b1dcc5ed48b6c8d13c)]
+* increase verbosity in extract [[b2fe8a0](https://github.com/flaviostutz/npmdata/commit/b2fe8a0b57b8ebc5205aec38e2d5065095e92b31)]
+
+### Misc
+
+
+### Info
+
+* Authors: Flavio Stutz <flaviostutz@gmail.com>
+
+
 ## 0.18.15 (2026-03-21)
 
 ### Maintenance
