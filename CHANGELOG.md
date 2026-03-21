@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.18.13 (2026-03-20)
+
+### Maintenance
+
+* release: 0.18.12 [[426f8ff](https://github.com/flaviostutz/npmdata/commit/426f8ffe87329c5a5cf2c3234b443a632e7265a8)]
+* fix npx working in non nodejs folders [[c700292](https://github.com/flaviostutz/npmdata/commit/c7002926bef9b0cc7ab781396045548af09fab85)]
+
+### Misc
+
+
+### Info
+
+* Authors: Flavio Stutz <flaviostutz@gmail.com>
+
+
 ## 0.18.12 (2026-03-19)
 
 ### Maintenance
