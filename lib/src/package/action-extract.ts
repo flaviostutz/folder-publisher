@@ -64,6 +64,9 @@ export async function actionExtract(options: ExtractOptions): Promise<ExtractRes
     // ── Pre-flight conflict check ──────────────────────────────────────────
     // Detect unmanaged-file conflicts before any disk writes.
     if (!isDryRun) {
+      if (verbose) {
+        console.log(`[verbose] actionExtract: checking for possible file conflicts...`);
+      }
       for (const entry of diff.conflict) {
         const desired = entry.desired!;
         const isUnmanagedConflict = !entry.existing && desired.managed;
@@ -97,6 +100,9 @@ export async function actionExtract(options: ExtractOptions): Promise<ExtractRes
     const outputDirs = new Set(resolvedFiles.map((f) => f.outputDir));
 
     // Remove stale symlinks before writing new files
+    if (verbose) {
+      console.log(`[verbose] actionExtract: removing stale symlinks...`);
+    }
     for (const outputDir of outputDirs) {
       const dirFiles = resolvedFiles.filter((f) => f.outputDir === outputDir);
       const symlinks = dirFiles.flatMap((f) => f.symlinks);
@@ -106,6 +112,9 @@ export async function actionExtract(options: ExtractOptions): Promise<ExtractRes
     }
 
     // Delete extra managed files
+    if (verbose) {
+      console.log(`[verbose] actionExtract: removing extra managed files...`);
+    }
     for (const entry of diff.extra) {
       const fullPath = path.join(entry.outputDir, entry.relPath);
       const gitignorePaths = readManagedGitignoreEntries(entry.outputDir);
@@ -123,6 +132,9 @@ export async function actionExtract(options: ExtractOptions): Promise<ExtractRes
     }
 
     // Add missing files
+    if (verbose) {
+      console.log(`[verbose] actionExtract: adding missing files...`);
+    }
     for (const entry of diff.missing) {
       const desired = entry.desired!;
       writeFileToOutput(
@@ -152,6 +164,9 @@ export async function actionExtract(options: ExtractOptions): Promise<ExtractRes
     }
 
     // Resolve conflicts
+    if (verbose) {
+      console.log(`[verbose] actionExtract: resolving file conflicts...`);
+    }
     for (const entry of diff.conflict) {
       const desired = entry.desired!;
       // managed=false: existing file is user-owned, leave it untouched
@@ -180,11 +195,17 @@ export async function actionExtract(options: ExtractOptions): Promise<ExtractRes
     }
 
     // Update marker and gitignore per output directory
+    if (verbose) {
+      console.log(`[verbose] actionExtract: updating marker and gitignore...`);
+    }
     for (const outputDir of outputDirs) {
       await updateOutputDirMetadata(outputDir, diff, resolvedFiles, cwd, verbose);
     }
 
     // Apply symlinks and content replacements per output directory
+    if (verbose) {
+      console.log(`[verbose] actionExtract: applying symlinks and content replacements...`);
+    }
     for (const outputDir of outputDirs) {
       const dirFiles = resolvedFiles.filter((f) => f.outputDir === outputDir);
       const symlinkConfigs = uniqueSymlinkConfigs(dirFiles);
