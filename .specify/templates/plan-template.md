@@ -31,7 +31,13 @@
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-[Gates determined based on constitution file]
+| Principle | Check | Status |
+|-----------|-------|--------|
+| I. XDR-First | New design decisions captured in `_local` XDRs (BDR/ADR/EDR) before implementation | [ ] |
+| II. Preset Integrity | Any preset changes are non-overlapping and examples/ assertions are updated | [ ] |
+| III. Consumer-First | Breaking changes identified and version bump type determined | [ ] |
+| IV. Self-Contained | XDRs under 100 lines; no implicit external context required | [ ] |
+| V. Simplicity | Simplest solution chosen; `make test` and `make lint-fix` pass | [ ] |
 
 ## Project Structure
 

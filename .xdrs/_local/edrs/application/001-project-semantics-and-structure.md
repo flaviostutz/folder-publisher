@@ -16,14 +16,14 @@ A single authoritative reference ensures consistent implementation decisions acr
 
 **Core concepts**
 
-- **Package** - An npm package containing data files intended to be published to an npm registry and later extracted into a consumer's directory. A package may include an `npmdata` configuration (in `package.json` or `.npmdatarc`) describing how its files should be extracted and which other data packages it depends on.
+- **Package** - A source of data files intended to be extracted into a consumer's directory. A package may be an npm package or a git repository. It may include an `npmdata` configuration (in `package.json` or `.npmdatarc`) describing how its files should be extracted and which other data packages it depends on.
 - **Fileset** - A combination of a package spec (name + optional semver constraint) and instructions that control which files are selected (glob patterns, content regexes, presets) and how they are written to disk (output path, force, keepExisting, managed, gitignore, symlinks, content replacements).
 - **CLI** - The command-line interface (`npx npmdata`) that orchestrates extract, check, list, purge, and init operations. It can be configured via `.npmdatarc`, `package.json#npmdata`, or direct command-line arguments.
 
 **Usage modes**
 
 1. **Library** - Embed npmdata in another system by importing its public API (e.g. `extract()`, `check()`, `list()`, `purge()`).
-2. **Standalone CLI** - Run `npx npmdata` with flags or a `.npmdatarc` config file to extract data from any npm package.
+2. **Standalone CLI** - Run `npx npmdata` with flags or a `.npmdatarc` config file to extract data from any npm package or supported git repository.
 3. **Self-installable package** - Use `npmdata init` to scaffold a publishable package that bundles its own CLI entry-point so consumers run `npx <your-package>` to extract data, optionally filtered by `--presets`.
 
 **Folder layout**
@@ -41,6 +41,7 @@ A single authoritative reference ensures consistent implementation decisions acr
   /mypackage              Self-exportable data package example
   /mypackage-consumer     Consumer of the self-exportable package
   /cli-config             CLI usage with .npmdatarc configuration
+  /git-sources-config     Config-file mode with git repositories as sources, including nested git recursion
   /split-set-config       Split-set pattern: same package in two sets, excluding a file in one and including it with different output config in the other, using .npmdatarc
 ```
 

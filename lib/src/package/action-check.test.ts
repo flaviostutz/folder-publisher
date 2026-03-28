@@ -10,6 +10,7 @@ import { writeMarker, markerPath } from '../fileset/markers';
 import { filterEntriesByPresets } from '../utils';
 
 import { actionCheck } from './action-check';
+import { actionExtract } from './action-extract';
 
 let tmpDir: string;
 
@@ -87,6 +88,46 @@ describe('actionCheck', () => {
     const result = await actionCheck({ entries, cwd: tmpDir });
     // File is not on disk → missing
     expect(result.missing.length).toBeGreaterThan(0);
+  }, 60000);
+
+  it('reports stale managed files as extra after noSync extract', async () => {
+    await installMockPackage(
+      'check-nosync-pkg',
+      '1.0.0',
+      { 'keep.md': '# Keep', 'stale.md': '# Stale' },
+      tmpDir,
+    );
+
+    const outputDir = path.join(tmpDir, 'out-nosync');
+    await actionExtract({
+      entries: [{ package: 'check-nosync-pkg@1.0.0', output: { path: outputDir } }],
+      cwd: tmpDir,
+    });
+
+    await actionExtract({
+      entries: [
+        {
+          package: 'check-nosync-pkg@1.0.0',
+          selector: { files: ['keep.md'] },
+          output: { path: outputDir, noSync: true },
+        },
+      ],
+      cwd: tmpDir,
+    });
+
+    const result = await actionCheck({
+      entries: [
+        {
+          package: 'check-nosync-pkg@1.0.0',
+          selector: { files: ['keep.md'] },
+          output: { path: outputDir },
+        },
+      ],
+      cwd: tmpDir,
+    });
+
+    expect(result.extra).toContain('stale.md');
+    expect(fs.existsSync(path.join(outputDir, 'stale.md'))).toBe(true);
   }, 60000);
 
   it('skips entries with managed=false when skipUnmanaged=true', async () => {

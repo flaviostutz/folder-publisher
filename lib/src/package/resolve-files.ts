@@ -1,5 +1,4 @@
 /* eslint-disable no-console */
-import fs from 'node:fs';
 import path from 'node:path';
 
 import {
@@ -9,25 +8,24 @@ import {
   ResolvedFile,
   ProgressEvent,
 } from '../types';
-import {
-  parsePackageSpec,
-  installOrUpgradePackage,
-  filterEntriesByPresets,
-  formatDisplayPath,
-} from '../utils';
+import { filterEntriesByPresets, formatDisplayPath } from '../utils';
 import { enumeratePackageFiles } from '../fileset/package-files';
 
+import { loadNpmdataConfigFromDirectory } from './config';
 import { mergeOutputConfig, mergeSelectorConfig } from './config-merge';
+import { createSourceRuntime, parsePackageTarget, SourceRuntime } from './source';
 
 export type ResolveOptions = {
   cwd: string;
   verbose?: boolean;
   onProgress?: (event: ProgressEvent) => void;
+  sourceRuntime?: SourceRuntime;
 };
 
 export type ResolveFilesDetailedResult = {
   files: ResolvedFile[];
   relevantPackagesByOutputDir: Map<string, Set<string>>;
+  noSyncOutputDirs: Set<string>;
 };
 
 function addRelevantPackage(
@@ -38,6 +36,12 @@ function addRelevantPackage(
   const relevantPackages = relevantPackagesByOutputDir.get(outputDir) ?? new Set<string>();
   relevantPackages.add(packageName);
   relevantPackagesByOutputDir.set(outputDir, relevantPackages);
+}
+
+function markNoSyncOutput(noSyncOutputDirs: Set<string>, outputDir: string, noSync: boolean): void {
+  if (noSync) {
+    noSyncOutputDirs.add(outputDir);
+  }
 }
 
 /** Unique key for an entry used for recursion-cycle detection. */
@@ -78,6 +82,8 @@ export async function resolveFilesDetailed(
 ): Promise<ResolveFilesDetailedResult> {
   const visited = new Set<string>();
   const relevantPackagesByOutputDir = new Map<string, Set<string>>();
+  const noSyncOutputDirs = new Set<string>();
+  const sourceRuntime = options.sourceRuntime ?? createSourceRuntime(options.cwd, options.verbose);
   const raw = await resolveFilesInternal(
     entries,
     { path: '.' },
@@ -88,13 +94,15 @@ export async function resolveFilesDetailed(
     undefined,
     // eslint-disable-next-line no-undefined
     undefined,
-    options,
+    { ...options, sourceRuntime },
     relevantPackagesByOutputDir,
+    noSyncOutputDirs,
     visited,
   );
   return {
     files: deduplicateAndCheckConflicts(raw),
     relevantPackagesByOutputDir,
+    noSyncOutputDirs,
   };
 }
 
@@ -108,9 +116,10 @@ async function resolveFilesInternal(
   currentPkgVersion: string | undefined,
   options: ResolveOptions,
   relevantPackagesByOutputDir: Map<string, Set<string>>,
+  noSyncOutputDirs: Set<string>,
   visited: Set<string>,
 ): Promise<ResolvedFile[]> {
-  const { cwd, verbose, onProgress } = options;
+  const { cwd, verbose, onProgress, sourceRuntime } = options;
   const resolvedEntries = entries.map((entry) => {
     const mergedOutput = mergeOutputConfig(inheritedOutput, entry.output ?? {});
     const entrySelector = entry.selector ?? {};
@@ -147,6 +156,7 @@ async function resolveFilesInternal(
 
       const outputDir = path.resolve(cwd, mergedOutput.path ?? '.');
       addRelevantPackage(relevantPackagesByOutputDir, outputDir, currentPkgName);
+      markNoSyncOutput(noSyncOutputDirs, outputDir, mergedOutput.noSync === true);
       const files = await enumeratePackageFiles(currentPkgPath, mergedSelector);
 
       if (verbose) {
@@ -169,46 +179,32 @@ async function resolveFilesInternal(
       }
     } else {
       // ── External-package entry ────────────────────────────────────────────
-      const pkg = parsePackageSpec(entry.package);
+      const pkg = parsePackageTarget(entry.package, entry.source);
       const upgrade = mergedSelector.upgrade ?? false;
 
       onProgress?.({
         type: 'package-start',
-        packageName: pkg.name,
-        packageVersion: pkg.version ?? 'latest',
+        packageName: pkg.packageName,
+        packageVersion: pkg.requestedVersion ?? 'latest',
       });
 
-      const pkgPath = await installOrUpgradePackage(pkg.name, pkg.version, upgrade, cwd, verbose);
-
-      let installedVersion = '0.0.0';
-      try {
-        const pkgJsonContent = JSON.parse(
-          fs.readFileSync(path.join(pkgPath, 'package.json')).toString(),
-        ) as { version: string };
-        installedVersion = pkgJsonContent.version;
-      } catch {
-        // fallback
-      }
+      const resolvedPackage = await sourceRuntime!.resolvePackage(entry, upgrade);
+      const pkgPath = resolvedPackage.packagePath;
+      const installedVersion = resolvedPackage.packageVersion;
 
       if (verbose) {
         console.log(
-          `[verbose] resolveFiles: resolved "${pkg.name}@${installedVersion}" at ${formatDisplayPath(pkgPath, cwd)}`,
+          `[verbose] resolveFiles: resolved "${resolvedPackage.packageName}@${installedVersion}" at ${formatDisplayPath(pkgPath, cwd)}`,
         );
       }
 
       // Check whether this package declares its own npmdata.sets
-      let pkgNpmdataSets: NpmdataExtractEntry[] | undefined;
-      try {
-        const depPkgJson = JSON.parse(
-          fs.readFileSync(path.join(pkgPath, 'package.json')).toString(),
-        ) as { npmdata?: { sets?: NpmdataExtractEntry[] } };
-        pkgNpmdataSets = depPkgJson.npmdata?.sets;
-      } catch {
-        // no sets
-      }
+      const depConfig = await loadNpmdataConfigFromDirectory(pkgPath);
+      const pkgNpmdataSets = depConfig?.sets;
 
       const outputDir = path.resolve(cwd, mergedOutput.path ?? '.');
-      addRelevantPackage(relevantPackagesByOutputDir, outputDir, pkg.name);
+      addRelevantPackage(relevantPackagesByOutputDir, outputDir, resolvedPackage.packageName);
+      markNoSyncOutput(noSyncOutputDirs, outputDir, mergedOutput.noSync === true);
       const hasSelfSet = (pkgNpmdataSets ?? []).some((setEntry) => !setEntry.package);
 
       // When a package declares self sets, those sets define how its own files are split
@@ -217,13 +213,20 @@ async function resolveFilesInternal(
 
       if (verbose) {
         console.log(
-          `[verbose] resolveFiles: "${pkg.name}" own files → ${ownFiles.length} file(s) to ${formatDisplayPath(outputDir, cwd)}`,
+          `[verbose] resolveFiles: "${resolvedPackage.packageName}" own files → ${ownFiles.length} file(s) to ${formatDisplayPath(outputDir, cwd)}`,
         );
       }
 
       for (const relPath of ownFiles) {
         results.push(
-          buildResolvedFile(relPath, pkgPath, pkg.name, installedVersion, outputDir, mergedOutput),
+          buildResolvedFile(
+            relPath,
+            pkgPath,
+            resolvedPackage.packageName,
+            installedVersion,
+            outputDir,
+            mergedOutput,
+          ),
         );
       }
 
@@ -231,14 +234,19 @@ async function resolveFilesInternal(
         for (const pkgSet of pkgNpmdataSets) {
           const setOutput = mergeOutputConfig(mergedOutput, pkgSet.output ?? {});
           const setOutputDir = path.resolve(cwd, setOutput.path ?? '.');
+          markNoSyncOutput(noSyncOutputDirs, setOutputDir, setOutput.noSync === true);
           if (pkgSet.package) {
             addRelevantPackage(
               relevantPackagesByOutputDir,
               setOutputDir,
-              parsePackageSpec(pkgSet.package).name,
+              parsePackageTarget(pkgSet.package, pkgSet.source).packageName,
             );
           } else {
-            addRelevantPackage(relevantPackagesByOutputDir, setOutputDir, pkg.name);
+            addRelevantPackage(
+              relevantPackagesByOutputDir,
+              setOutputDir,
+              resolvedPackage.packageName,
+            );
           }
         }
 
@@ -252,7 +260,7 @@ async function resolveFilesInternal(
           presetFilteredSets.length === 0
         ) {
           throw new Error(
-            `Presets (${mergedSelector.presets.join(', ')}) not found in any set of package "${pkg.name}"`,
+            `Presets (${mergedSelector.presets.join(', ')}) not found in any set of package "${resolvedPackage.packageName}"`,
           );
         }
 
@@ -275,7 +283,7 @@ async function resolveFilesInternal(
 
         if (verbose && setsToFollow.length > 0) {
           console.log(
-            `[verbose] resolveFiles: "${pkg.name}" has ${pkgNpmdataSets.length} set(s)` +
+            `[verbose] resolveFiles: "${resolvedPackage.packageName}" has ${pkgNpmdataSets.length} set(s)` +
               `, ${setsToFollow.length} to follow after preset/self-ref filter`,
           );
         }
@@ -286,10 +294,11 @@ async function resolveFilesInternal(
             mergedOutput,
             mergedSelector,
             pkgPath,
-            pkg.name,
+            resolvedPackage.packageName,
             installedVersion,
             options,
             relevantPackagesByOutputDir,
+            noSyncOutputDirs,
             visited,
           );
           results.push(...subResults);
@@ -298,7 +307,7 @@ async function resolveFilesInternal(
 
       onProgress?.({
         type: 'package-end',
-        packageName: pkg.name,
+        packageName: resolvedPackage.packageName,
         packageVersion: installedVersion,
       });
     }
@@ -325,6 +334,7 @@ function buildResolvedFile(
     gitignore: output.gitignore !== false,
     force: output.force ?? false,
     ignoreIfExisting: output.keepExisting ?? false,
+    noSync: output.noSync === true,
     contentReplacements: output.contentReplacements ?? [],
     symlinks: output.symlinks ?? [],
   };

@@ -68,3 +68,47 @@ export const installMockPackage = async (
   // Return the installed package path in node_modules
   return path.join(tmpDir, 'node_modules', name);
 };
+
+export const createMockGitRepo = async (
+  name: string,
+  files: Record<string, string>,
+  tmpDir: string,
+  options?: {
+    npmdataConfig?: Record<string, unknown>;
+    tag?: string;
+  },
+): Promise<{ repoDir: string; repoUrl: string; head: string; tag?: string }> => {
+  const repoDir = path.join(tmpDir, `${name}-git-source`);
+  if (fs.existsSync(repoDir)) {
+    fs.rmSync(repoDir, { recursive: true, force: true });
+  }
+  fs.mkdirSync(repoDir, { recursive: true });
+
+  for (const [filePath, content] of Object.entries(files)) {
+    const fullPath = path.join(repoDir, filePath);
+    fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+    fs.writeFileSync(fullPath, content);
+  }
+
+  if (options?.npmdataConfig) {
+    fs.writeFileSync(path.join(repoDir, '.npmdatarc.json'), JSON.stringify(options.npmdataConfig));
+  }
+
+  execSync('git init', { cwd: repoDir, stdio: 'pipe' });
+  execSync('git config user.email "npmdata-tests@example.com"', { cwd: repoDir, stdio: 'pipe' });
+  execSync('git config user.name "npmdata tests"', { cwd: repoDir, stdio: 'pipe' });
+  execSync('git add .', { cwd: repoDir, stdio: 'pipe' });
+  execSync('git commit -m "initial"', { cwd: repoDir, stdio: 'pipe' });
+  if (options?.tag) {
+    execSync(`git tag ${options.tag}`, { cwd: repoDir, stdio: 'pipe' });
+  }
+
+  const head = execSync('git rev-parse HEAD', { cwd: repoDir, stdio: 'pipe' }).toString().trim();
+
+  return {
+    repoDir,
+    repoUrl: `file://${repoDir}`,
+    head,
+    tag: options?.tag,
+  };
+};

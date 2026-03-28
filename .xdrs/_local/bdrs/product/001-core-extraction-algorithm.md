@@ -16,11 +16,12 @@ Extraction is split into a read-only diff phase and an action phase. Config flow
 
 **Phase 1 — Build diff (read-only)**
 
-Given `(packageName, version, selectorConfig, outputConfig)`:
+Given `(packageName, version/ref, selectorConfig, outputConfig, source)`:
 
-1. Load config for `packageName` (from its `package.json` or `.npmdatarc`).
-2. If no config is found: call `extractFileset(packageName, version, selectorConfig, outputConfig)` — directly walk and filter the package files to produce a diff (add/modify/delete/skip).
-3. If config is found, for each fileset entry in config:
+1. Resolve the source package: install from npm or clone from git into `.npmdata-tmp`.
+2. Load config for the resolved package root (from its `package.json` or `.npmdatarc`).
+3. If no config is found: call `extractFileset(packageName, version/ref, selectorConfig, outputConfig)` — directly walk and filter the package files to produce a diff (add/modify/delete/skip).
+4. If config is found, for each fileset entry in config:
    - Merge the entry's selector and output config with the incoming `selectorConfig`/`outputConfig` using the merge rules below.
    - If the entry's package is the current package: call `extractFileset(currentPackage, version, mergedSelector, mergedOutput)`.
    - Otherwise: call `extractPackage(entry.package, entry.version, mergedSelector, mergedOutput)` — recursion, so config inheritance propagates downward.
@@ -31,6 +32,8 @@ Given the full diff produced in Phase 1:
 - `extract`: write/delete files to disk (skipped when `dryRun`). File deletions are deferred until all filesets are processed so a file claimed by one package can be superseded by another in the same run.
 - `check`: compare hashes, report differences.
 - `purge`: delete files using only the local `.npmdata` marker — no network access needed.
+
+When the source is git, the clone lives in `.npmdata-tmp/<hashed-repo-dir>` during the command and is deleted afterwards.
 
 **Merge rules (applied at step 3 of Phase 1)**
 

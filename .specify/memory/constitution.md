@@ -1,122 +1,119 @@
 <!--
 SYNC IMPACT REPORT
 ==================
-Version change: (none) -> 1.0.0 -- initial ratification from template.
-Modified principles: N/A (first fill).
-Added sections: I. Library-First Architecture, II. CLI Interface,
-  III. Test-First, IV. Decision-Driven Development, V. Quality Gates,
-  Development Standards, Agent Workflow, Governance.
-Removed sections: N/A
-Templates requiring updates:
-  OK .specify/templates/plan-template.md  -- no structural changes needed.
-  OK .specify/templates/spec-template.md  -- no changes needed.
-  OK .specify/templates/tasks-template.md -- no changes needed.
-Follow-up TODOs:
-  - TODO(XDR_PATH): No .xdrs/ directory found. Create .xdrs/index.md and seed
-    with initial XDRs to enable Principle IV. Until then, treat spec.md and
-    README.md as interim decision records.
+Version change: (none) → 1.0.0 (MINOR: initial population of constitution)
+
+Added sections:
+  - Core Principles (I through V)
+  - Quality Requirements
+  - Development Workflow
+  - Governance
+
+Modified principles: N/A (first version)
+Removed sections: N/A (first version)
+
+Templates checked:
+  - .specify/templates/plan-template.md    ✅ "Constitution Check" gate already present
+  - .specify/templates/spec-template.md   ✅ no constitution-specific sections required
+  - .specify/templates/tasks-template.md  ✅ generic task categories compatible
+
+Related XDRs created:
+  - .xdrs/_local/bdrs/index.md            ✅ created
+  - .xdrs/_local/bdrs/principles/001-agentme-product-purpose.md  ✅ created
+
+Follow-up TODOs: none
 -->
 
-# npmdata Constitution
+# agentme Constitution
 
 ## Core Principles
 
-### I. Library-First Architecture
+### I. XDR-First Knowledge Base
 
-The core extraction, check, purge, and init logic MUST live in the `lib/` TypeScript library,
-organised into three layers: `cli/` (thin UI adapter), `package/` (orchestration and action
-execution), and `fileset/` (diff calculation and file-set processing). The CLI layer MUST contain
-only argument parsing, console output, and user-facing error handling -- no business logic. All
-features MUST be implementable and testable as library functions before any CLI surface is added.
+Every design decision, product requirement, and engineering convention MUST be captured in an XDR
+before it is acted on. Specs and plans produced by speckit are temporary work products and may be
+deleted after a feature ships. XDRs are permanent and form the living knowledge base used for
+vibe coding, onboarding, and future feature development.
 
-**Rationale**: Keeps the library independently consumable, testable, and documentable. The CLI is
-a delivery mechanism, not the source of truth for behaviour.
+- BDRs capture product purpose, business rules, and consumer workflows.
+- ADRs capture architectural context and cross-cutting patterns.
+- EDRs capture concrete engineering decisions: tooling, structure, practices.
+- Every non-trivial implementation decision MUST have a corresponding XDR entry in `_local` or
+  `agentme` scope before the implementation task is marked complete.
 
-### II. CLI Interface
+### II. Preset Integrity (NON-NEGOTIABLE)
 
-Every core capability (extract, check, purge, init, list) MUST expose a CLI entry point. The text
-I/O protocol is: stdin/args -> stdout, errors -> stderr. Human-readable output is the default; JSON
-output MUST be supported where programmatic consumption is expected. Exit codes MUST be non-zero on
-failure.
+agentme distributes files to consumer projects via named presets (`basic`, `speckit`). Each
+preset MUST be independently coherent, non-overlapping, and verified on every build.
 
-**Rationale**: The CLI is the primary integration surface for consumers running `npx npmdata`.
-Consistent I/O conventions enable scripting, CI/CD pipelines, and composability with other tools.
+- A preset MUST contain all files a consumer needs and nothing more.
+- Presets MUST NOT share extraction sets unless the consumer explicitly requests multiple presets.
+- The `examples/` folder MUST assert the exact file presence/absence for each preset combination
+  after every `make build`.
+- Adding a file to a preset or changing selector patterns is a public API change and requires a
+  version bump (MINOR or MAJOR depending on impact).
 
-### III. Test-First (NON-NEGOTIABLE)
+### III. Consumer-First API Discipline
 
-Unit tests MUST be co-located with source files (`*.test.ts`) and written before or alongside
-implementation. Integration tests MUST cover end-to-end flows for each CLI command. The
-Red-Green-Refactor cycle is the expected development rhythm. A change is not complete until
-`make test` passes with no failures and no regressions.
+XDRs, skills, and preset file sets are a public API consumed by external projects. Changes MUST
+respect semantic versioning.
 
-**Rationale**: The extraction algorithm is stateful and recursive; correctness regressions are hard
-to detect manually. Automated tests are the primary safety net.
+- MAJOR: removing or renaming a preset, removing or restructuring an XDR that external consumers
+  reference, or any change that requires consumer-side migration.
+- MINOR: adding a new preset, adding XDRs or skills, adding files to an existing preset.
+- PATCH: wording, clarifications, typo fixes inside XDRs or skills that carry no structural change.
+- Breaking changes MUST be documented in the release notes and in the relevant XDR's `Conflicts`
+  or `Implementation Details` section before merging.
 
-### IV. Decision-Driven Development
+### IV. Self-Contained Artifacts
 
-All significant implementation decisions MUST be preceded by consulting XDRs (cross-domain records)
-in `.xdrs/`. XDRs are the authoritative source of truth for architecture, patterns, naming
-conventions, and behavioural contracts. Implementation agents MUST:
+Every XDR and skill MUST work without any implicit context outside itself.
 
-- Read `.xdrs/index.md` before starting any design or implementation step.
-- Follow XDR guidance without deviation unless a new or amended XDR is created first.
-- Re-validate their completed work against relevant XDRs before marking a task done.
+- XDRs MUST be under 100 lines (hard limit 200 for templates and elaborate decisions).
+- Skills MUST be under 500 lines; lengthy reference material goes in `references/`.
+- Internal cross-references MUST use relative file paths; no absolute or external URLs without
+  explanation.
+- A consumer reading an XDR or skill for the first time MUST be able to follow it without
+  accessing other systems.
 
-When no applicable XDR exists, a new one MUST be proposed before the implementation proceeds.
+### V. Simplicity and Verified Quality
 
-**Rationale**: Prevents ad-hoc architectural drift across contributors and AI agents. XDRs are the
-project memory that survives context resets.
+The simplest solution that passes all tests is always preferred. Quality gates are non-negotiable.
 
-### V. Quality Gates
+- `make test` MUST pass before any release; failures block publish.
+- Linting MUST be clean (`make lint-fix`) before merging.
+- Files MUST NOT exceed 400 lines (test files excepted).
+- No feature scope creep: implement only what the current spec requires.
+- Avoid adding error handling, fallbacks, or abstractions for hypothetical future scenarios.
 
-Every change MUST pass all three gates before being considered complete:
+## Quality Requirements
 
-1. `make build` -- TypeScript compilation with no errors.
-2. `make lint-fix` -- ESLint auto-fix followed by zero remaining lint violations.
-3. `make test` -- Full test suite with no failures and no regressions.
+- `make test` in `examples/` MUST verify all preset extraction scenarios end-to-end.
+- XDRs produced during a feature MUST be reviewed for non-conflict before merging.
+- All XDR indexes (`_local`, `agentme`, `_core`) MUST be updated before a PR is merged.
+- New presets or selector changes MUST include updated test assertions in the examples Makefile.
 
-Gates MUST be run in the order listed; failures MUST be fixed, not suppressed or skipped.
+## Development Workflow
 
-**Rationale**: Quality gates encode the project's definition of "done" and are the minimum bar for
-any contribution landing in the main branch.
-
-## Development Standards
-
-- **Language**: TypeScript (strict mode); CommonJS output targeting the Node.js LTS release.
-- **Package manager**: pnpm; `pnpm-lock.yaml` MUST be committed alongside any dependency changes.
-- **Config discovery**: cosmiconfig is the authoritative config resolution mechanism; no custom
-  loaders are permitted outside of what cosmiconfig natively supports.
-- **Marker files**: `.npmdata` marker files track managed file ownership; their format and semantics
-  are defined in `fileset/markers.ts` and MUST NOT change without an XDR amendment.
-- **Symlinks**: Symlink handling is a first-class feature; behavioural changes to symlink resolution
-  require explicit test coverage and an XDR amendment if the public contract changes.
-
-## Agent Workflow
-
-Rules that apply to automated coding agents (AI or scripted) working in this repository:
-
-- Agents MUST NOT perform git operations (add, commit, push, branch creation, tagging, etc.).
-- Agents MUST consult XDRs before any implementation and re-validate after completion (Principle IV).
-- Agents MUST run all three quality gates and fix any failures before declaring a task done (Principle V).
-- Agents MUST NOT leave the codebase in a partially implemented or failing state at the end of a session.
+1. Before starting a feature: check existing XDRs for applicable decisions.
+2. During specifying (`speckit.specify`): capture business requirements as BDRs in `_local`.
+3. During planning (`speckit.plan`): update or create ADRs and EDRs in `_local` that reflect
+   architectural and engineering decisions made during the planning phase.
+4. During implementation: follow XDRs; create new `_local` XDRs for decisions not yet captured.
+5. After implementation: delete feature specs and plans; XDRs remain permanently.
+6. Runtime guidance: see `.xdrs/index.md` and all linked scope indexes.
 
 ## Governance
 
-This constitution supersedes all other informal project practices. When a conflict arises between
-this document and any other guidance source, this constitution takes precedence unless a superseding
-amendment has been ratified.
+This constitution supersedes all other development practices within this repository. Amendments
+require:
+1. A version bump following semantic versioning rules stated in Principle III.
+2. An updated `LAST_AMENDED_DATE` in this file.
+3. A review of all five principles for continued non-conflict.
+4. An updated Sync Impact Report (HTML comment at the top of this file).
 
-**Amendment procedure**:
+All PRs MUST include a "Constitution Check" section confirming compliance with all five principles.
+Complexity MUST be justified; if a solution requires deviation from a principle, that deviation
+MUST be documented in a new or updated XDR in `_local`.
 
-1. Open an issue or PR describing the proposed change and its rationale.
-2. Update this file following semantic versioning:
-   - MAJOR -- backward-incompatible governance change, principle removal, or redefinition.
-   - MINOR -- new principle or section added, or materially expanded guidance.
-   - PATCH -- clarifications, wording refinements, typo fixes.
-3. Update `Last Amended` to the ISO date of the amendment.
-4. Run the `speckit.constitution` command to propagate changes to dependent templates.
-
-**Compliance review**: All pull requests MUST include a Constitution Check section in the
-implementation plan confirming the five core principles and quality gates are satisfied.
-
-**Version**: 1.0.0 | **Ratified**: 2026-03-08 | **Last Amended**: 2026-03-08
+**Version**: 1.0.0 | **Ratified**: 2026-03-14 | **Last Amended**: 2026-03-14

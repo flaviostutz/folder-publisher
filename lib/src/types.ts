@@ -1,10 +1,15 @@
 /**
  * Internal parsed representation of an npm package specifier.
  */
+export type SourceKind = 'auto' | 'npm' | 'git';
+
+/**
+ * Internal parsed representation of a package specifier.
+ */
 export type PackageConfig = {
-  /** npm package name (e.g. "my-pkg" or "@scope/my-pkg") */
+  /** Package name or repository URL. */
   name: string;
-  /** Semver range constraint. Absent means "latest". */
+  /** Version/range for npm packages, or git ref for git sources. */
   version?: string;
 };
 
@@ -77,6 +82,11 @@ export type OutputConfig = {
    */
   managed?: boolean;
   /**
+   * Keep stale managed files on disk instead of deleting them during extract.
+   * Check still reports them as extra drift until they are removed or synced.
+   */
+  noSync?: boolean;
+  /**
    * Report what would change; no disk writes.
    */
   dryRun?: boolean;
@@ -137,6 +147,8 @@ export type NpmdataExtractEntry = {
    * self-package entry — files are drawn from the package that owns this sets array.
    */
   package?: string;
+  /** Resolve package from npm, git, or auto-detect from the package spec. */
+  source?: SourceKind;
   /** Where/how to write files. Defaults to current directory with no special flags. */
   output?: OutputConfig;
   /** Which files to select and install options. */
@@ -303,6 +315,8 @@ export type ResolvedFile = {
   force: boolean;
   /** Whether to skip files that already exist in the output. Default: false. */
   ignoreIfExisting: boolean;
+  /** Whether extract should leave stale managed files in place for this output. */
+  noSync: boolean;
   /** Content replacement rules applied to this file before comparison. */
   contentReplacements: ContentReplacementConfig[];
   /** Symlink operations to apply in the output directory after extraction. */

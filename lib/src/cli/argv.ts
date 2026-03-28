@@ -5,6 +5,7 @@ import {
   NpmdataExtractEntry,
   SelectorConfig,
   OutputConfig,
+  SourceKind,
 } from '../types';
 import { parsePackageSpec, filterEntriesByPresets } from '../utils';
 
@@ -15,6 +16,7 @@ import { parsePackageSpec, filterEntriesByPresets } from '../utils';
  */
 export type ParsedArgv = {
   packages?: PackageConfig[];
+  source?: SourceKind;
   output?: string;
   files?: string[];
   exclude?: string[];
@@ -23,6 +25,8 @@ export type ParsedArgv = {
   configFile?: string;
   force?: boolean;
   keepExisting?: boolean;
+  /** --nosync / --nosync=true|false */
+  nosync?: boolean;
   /** --gitignore / --gitignore=true|false */
   gitignore?: boolean;
   /** --managed / --managed=true|false  (false ≡ unmanaged mode) */
@@ -77,9 +81,19 @@ export function parseArgv(argv: string[]): ParsedArgv {
   const packages = packagesRaw?.map((s) => parsePackageSpec(s));
 
   const verboseFlag = getBoolFlag('--verbose');
+  const sourceValue = getValue('--source');
+  if (
+    sourceValue !== undefined &&
+    sourceValue !== 'auto' &&
+    sourceValue !== 'npm' &&
+    sourceValue !== 'git'
+  ) {
+    throw new Error('--source must be one of: auto, npm, git');
+  }
 
   return {
     packages,
+    source: sourceValue as SourceKind | undefined,
     output: getValue('--output', '-o'),
     files: getCommaSplit('--files'),
     exclude: getCommaSplit('--exclude'),
@@ -88,6 +102,7 @@ export function parseArgv(argv: string[]): ParsedArgv {
     configFile: getValue('--config'),
     force,
     keepExisting,
+    nosync: getBoolFlag('--nosync'),
     gitignore: getBoolFlag('--gitignore'),
     managed: getBoolFlag('--managed'),
     dryRun: getBoolFlag('--dry-run'),
@@ -123,6 +138,7 @@ export function buildEntriesFromArgv(parsed: ParsedArgv): NpmdataExtractEntry[] 
     ...(parsed.output !== undefined ? { path: parsed.output } : {}),
     ...(parsed.force !== undefined ? { force: parsed.force } : {}),
     ...(parsed.keepExisting !== undefined ? { keepExisting: parsed.keepExisting } : {}),
+    ...(parsed.nosync !== undefined ? { noSync: parsed.nosync } : {}),
     ...(parsed.gitignore !== undefined ? { gitignore: parsed.gitignore } : {}),
     ...(parsed.managed !== undefined ? { managed: parsed.managed } : {}),
     ...(parsed.dryRun !== undefined ? { dryRun: parsed.dryRun } : {}),
@@ -130,6 +146,7 @@ export function buildEntriesFromArgv(parsed: ParsedArgv): NpmdataExtractEntry[] 
 
   return parsed.packages.map((pkg) => ({
     package: pkg.version ? `${pkg.name}@${pkg.version}` : pkg.name,
+    ...(parsed.source !== undefined ? { source: parsed.source } : {}),
     output,
     selector,
     ...(parsed.silent !== undefined ? { silent: parsed.silent } : {}),
@@ -152,6 +169,7 @@ export function applyArgvOverrides(
       ...(parsed.output !== undefined ? { path: parsed.output } : {}),
       ...(parsed.force !== undefined ? { force: parsed.force } : {}),
       ...(parsed.keepExisting !== undefined ? { keepExisting: parsed.keepExisting } : {}),
+      ...(parsed.nosync !== undefined ? { noSync: parsed.nosync } : {}),
       ...(parsed.gitignore !== undefined ? { gitignore: parsed.gitignore } : {}),
       ...(parsed.managed !== undefined ? { managed: parsed.managed } : {}),
       ...(parsed.dryRun !== undefined ? { dryRun: parsed.dryRun } : {}),
@@ -167,6 +185,7 @@ export function applyArgvOverrides(
 
     return {
       ...entry,
+      ...(parsed.source !== undefined ? { source: parsed.source } : {}),
       output: updatedOutput,
       selector: updatedSelector,
       ...(parsed.silent !== undefined ? { silent: parsed.silent } : {}),

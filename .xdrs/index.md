@@ -20,6 +20,14 @@ General engineering decisions covering cross-business standards and practices.
 
 ---
 
+### BDRs - _local
+
+Project-local business decisions specific to this repository. Always listed last so its decisions override or extend all higher-level business scopes.
+
+[View _local BDRs Index](_local/bdrs/index.md)
+
+---
+
 ### EDRs - agentkit
 
 [View agentkit EDRs Index](agentkit/edrs/index.md)

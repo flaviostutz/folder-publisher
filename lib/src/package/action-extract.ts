@@ -24,6 +24,7 @@ import {
 import { applyContentReplacements } from './content-replacements';
 import { resolveFilesDetailed } from './resolve-files';
 import { calculateDiff } from './calculate-diff';
+import { createSourceRuntime } from './source';
 
 export type ExtractOptions = BasicPackageOptions & {
   onProgress?: (event: ProgressEvent) => void;
@@ -48,24 +49,26 @@ export type ExtractResult = {
 export async function actionExtract(options: ExtractOptions): Promise<ExtractResult> {
   const { entries, cwd, verbose = false, onProgress, dryRun } = options;
   const isDryRun = dryRun ?? entries.some((e) => e.output?.dryRun === true);
+  const sourceRuntime = createSourceRuntime(cwd, verbose);
 
   const result: ExtractResult = { added: 0, modified: 0, deleted: 0, skipped: 0 };
   try {
     // ── Phase 1: Resolve desired files ──────────────────────────────────────
-    const resolved = await resolveFilesDetailed(entries, { cwd, verbose, onProgress });
+    const resolved = await resolveFilesDetailed(entries, {
+      cwd,
+      verbose,
+      onProgress,
+      sourceRuntime,
+    });
     const resolvedFiles = resolved.files;
+    const { noSyncOutputDirs, relevantPackagesByOutputDir } = resolved;
 
     if (verbose) {
       console.log(`[verbose] actionExtract: resolved ${resolvedFiles.length} desired file(s)`);
     }
 
     // ── Phase 2: Calculate diff ──────────────────────────────────────────────
-    const diff = await calculateDiff(
-      resolvedFiles,
-      verbose,
-      cwd,
-      resolved.relevantPackagesByOutputDir,
-    );
+    const diff = await calculateDiff(resolvedFiles, verbose, cwd, relevantPackagesByOutputDir);
 
     if (verbose) {
       console.log(
@@ -94,7 +97,9 @@ export async function actionExtract(options: ExtractOptions): Promise<ExtractRes
 
     // ── Count expected changes ─────────────────────────────────────────────
     result.added = diff.missing.length;
-    result.deleted = diff.extra.filter((entry) => isManagedFileEntry(entry.existing!)).length;
+    result.deleted = diff.extra.filter(
+      (entry) => isManagedFileEntry(entry.existing!) && !noSyncOutputDirs.has(entry.outputDir),
+    ).length;
     for (const entry of diff.conflict) {
       const desired = entry.desired!;
       if (desired.ignoreIfExisting || !desired.managed) {
@@ -110,25 +115,32 @@ export async function actionExtract(options: ExtractOptions): Promise<ExtractRes
     // ── Phase 3: Apply disk changes ──────────────────────────────────────────
 
     // Collect unique output directories
-    const outputDirs = new Set(resolvedFiles.map((f) => f.outputDir));
+    const outputDirs = new Set<string>([
+      ...resolvedFiles.map((f) => f.outputDir),
+      ...relevantPackagesByOutputDir.keys(),
+    ]);
 
     // Delete extra managed files
     if (verbose) {
       console.log(`[verbose] actionExtract: removing extra managed files...`);
     }
-    for (const entry of diff.extra.filter((diffEntry) => isManagedFileEntry(diffEntry.existing!))) {
-      const fullPath = path.join(entry.outputDir, entry.relPath);
-      const gitignorePaths = readManagedGitignoreEntries(entry.outputDir);
+    for (const entry of diff.extra.filter(
+      (diffEntry) =>
+        isManagedFileEntry(diffEntry.existing!) && !noSyncOutputDirs.has(diffEntry.outputDir),
+    )) {
+      const { outputDir, relPath, existing } = entry;
+      const fullPath = path.join(outputDir, relPath);
+      const gitignorePaths = readManagedGitignoreEntries(outputDir);
       if (fs.existsSync(fullPath)) {
         fs.chmodSync(fullPath, 0o644);
         fs.unlinkSync(fullPath);
       }
       onProgress?.({
         type: 'file-deleted',
-        packageName: entry.existing?.packageName ?? '',
-        file: entry.relPath,
+        packageName: existing?.packageName ?? '',
+        file: relPath,
         managed: true,
-        gitignore: gitignorePaths.has(entry.relPath),
+        gitignore: gitignorePaths.has(relPath),
       });
     }
 
@@ -201,7 +213,7 @@ export async function actionExtract(options: ExtractOptions): Promise<ExtractRes
     }
     for (const outputDir of outputDirs) {
       const dirFiles = resolvedFiles.filter((f) => f.outputDir === outputDir);
-      const relevantPackages = resolved.relevantPackagesByOutputDir.get(outputDir);
+      const relevantPackages = relevantPackagesByOutputDir.get(outputDir);
       const existingMarker = await readOutputDirMarker(outputDir);
       const desiredSymlinkEntries = collectManagedSymlinkEntries(outputDir, dirFiles);
       const desiredSymlinkPaths = new Set(desiredSymlinkEntries.map((entry) => entry.path));
@@ -240,6 +252,7 @@ export async function actionExtract(options: ExtractOptions): Promise<ExtractRes
         dirFiles,
         desiredSymlinkEntries,
         relevantPackages,
+        noSyncOutputDirs.has(outputDir),
         cwd,
         verbose,
       );
@@ -254,6 +267,7 @@ export async function actionExtract(options: ExtractOptions): Promise<ExtractRes
 
     return result;
   } finally {
+    sourceRuntime.cleanup();
     cleanupTempPackageJson(cwd, verbose);
   }
 }
@@ -276,6 +290,7 @@ async function updateOutputDirMetadata(
   resolvedFiles: ResolvedFile[],
   desiredSymlinkEntries: ManagedFileMetadata[],
   relevantPackages: Set<string> | undefined,
+  noSync: boolean,
   cwd: string,
   verbose?: boolean,
 ): Promise<void> {
@@ -284,7 +299,7 @@ async function updateOutputDirMetadata(
   // Paths removed by this run (extra files that were deleted)
   const deletedPaths = new Set(
     diff.extra
-      .filter((e) => e.outputDir === outputDir && isManagedFileEntry(e.existing!))
+      .filter((e) => e.outputDir === outputDir && isManagedFileEntry(e.existing!) && !noSync)
       .map((e) => e.relPath),
   );
 

@@ -2,6 +2,16 @@ import { cosmiconfig } from 'cosmiconfig';
 
 import { NpmdataConfig } from '../types';
 
+const CONFIG_BASENAMES = [
+  '.npmdatarc',
+  '.npmdatarc.json',
+  '.npmdatarc.yaml',
+  '.npmdatarc.yml',
+  'npmdata.config.js',
+  'npmdata.config.cjs',
+  'package.json',
+] as const;
+
 /**
  * Search for an npmdata configuration using cosmiconfig, starting from the given cwd.
  * Looks for (in priority order):
@@ -46,4 +56,34 @@ export async function loadNpmdataConfigFile(filePath: string): Promise<NpmdataCo
     return null;
   }
   return cfg;
+}
+
+/**
+ * Load npmdata config only from the given directory, without searching parent folders.
+ */
+export async function loadNpmdataConfigFromDirectory(
+  directory: string,
+): Promise<NpmdataConfig | null> {
+  const explorer = cosmiconfig('npmdata');
+
+  for (const basename of CONFIG_BASENAMES) {
+    let result;
+    try {
+      result = await explorer.load(`${directory}/${basename}`);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        continue;
+      }
+      throw error;
+    }
+    if (!result || result.isEmpty) continue;
+
+    const cfg = result.config as NpmdataConfig;
+    if (cfg && Array.isArray(cfg.sets)) {
+      return cfg;
+    }
+  }
+
+  // eslint-disable-next-line unicorn/no-null
+  return null;
 }

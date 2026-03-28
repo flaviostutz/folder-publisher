@@ -10,6 +10,7 @@ import { removeFromGitignore, readManagedGitignoreEntries } from '../fileset/git
 import { removeAllSymlinks } from './symlinks';
 import { resolveFilesDetailed } from './resolve-files';
 import { calculateDiff } from './calculate-diff';
+import { createSourceRuntime } from './source';
 
 export type PurgeOptions = BasicPackageOptions & {
   onProgress?: (event: ProgressEvent) => void;
@@ -32,6 +33,7 @@ export type PurgeSummary = {
 export async function actionPurge(options: PurgeOptions): Promise<PurgeSummary> {
   const { entries, cwd, dryRun = false, verbose = false, onProgress } = options;
   const summary: PurgeSummary = { deleted: 0, symlinksRemoved: 0, dirsRemoved: 0 };
+  const sourceRuntime = createSourceRuntime(cwd, verbose);
 
   if (verbose) {
     console.log(`[verbose] actionPurge: resolving files (cwd: ${formatDisplayPath(cwd, cwd)})`);
@@ -41,6 +43,7 @@ export async function actionPurge(options: PurgeOptions): Promise<PurgeSummary> 
     const resolved = await resolveFilesDetailed(entries, {
       cwd,
       verbose,
+      sourceRuntime,
       onProgress: (e) => {
         if (e.type === 'package-start' || e.type === 'package-end') onProgress?.(e);
       },
@@ -83,6 +86,7 @@ export async function actionPurge(options: PurgeOptions): Promise<PurgeSummary> 
 
     return summary;
   } finally {
+    sourceRuntime.cleanup();
     cleanupTempPackageJson(cwd, verbose);
   }
 }

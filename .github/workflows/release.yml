@@ -28,5 +28,4 @@ jobs:
             -v \
             --git-username="Flavio Stutz" \
             --git-email="flaviostutz@gmail.com" \
-            --changelog-file CHANGELOG.md \
             ${{ inputs.prerelease == true && '--prerelease' || '' }}

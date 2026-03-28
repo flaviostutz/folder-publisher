@@ -15,6 +15,9 @@ export const DEFAULT_FILE_PATTERNS = ['**'];
  */
 export const DEFAULT_EXCLUDE_PATTERNS = [
   'package.json',
+  '.npmdatarc',
+  '.npmdatarc.*',
+  '.git/**',
   'bin/**',
   'README.md',
   'node_modules/**',

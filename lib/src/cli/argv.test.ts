@@ -17,6 +17,12 @@ describe('parseArgv', () => {
     expect(parseArgv([]).keepExisting).toBeUndefined();
   });
 
+  it('parses --nosync flag', () => {
+    expect(parseArgv(['--nosync']).nosync).toBe(true);
+    expect(parseArgv(['--nosync=false']).nosync).toBe(false);
+    expect(parseArgv([]).nosync).toBeUndefined();
+  });
+
   it('throws when --force and --keep-existing are both set', () => {
     expect(() => parseArgv(['--force', '--keep-existing'])).toThrow(
       '--force and --keep-existing are mutually exclusive',
@@ -29,6 +35,16 @@ describe('parseArgv', () => {
       { name: 'my-pkg', version: '^1.0.0' },
       { name: '@scope/other', version: '2.x' },
     ]);
+  });
+
+  it('parses --source', () => {
+    expect(parseArgv(['--source', 'git']).source).toBe('git');
+    expect(parseArgv(['--source', 'npm']).source).toBe('npm');
+    expect(parseArgv(['--source', 'auto']).source).toBe('auto');
+  });
+
+  it('throws on invalid --source', () => {
+    expect(() => parseArgv(['--source', 'svn'])).toThrow('--source must be one of: auto, npm, git');
   });
 
   it('parses --output / -o', () => {
@@ -54,6 +70,7 @@ describe('parseArgv', () => {
   it('parses boolean flags', () => {
     const parsed = parseArgv([
       '--dry-run',
+      '--nosync',
       '--gitignore=false',
       '--managed=false',
       '--upgrade',
@@ -61,6 +78,7 @@ describe('parseArgv', () => {
       '--verbose',
     ]);
     expect(parsed.dryRun).toBe(true);
+    expect(parsed.nosync).toBe(true);
     expect(parsed.gitignore).toBe(false);
     expect(parsed.managed).toBe(false);
     expect(parsed.upgrade).toBe(true);
@@ -96,6 +114,7 @@ describe('parseArgv', () => {
     expect(parsed.force).toBeUndefined();
     expect(parsed.keepExisting).toBeUndefined();
     expect(parsed.dryRun).toBeUndefined();
+    expect(parsed.nosync).toBeUndefined();
     expect(parsed.verbose).toBeUndefined();
     expect(parsed.gitignore).toBeUndefined();
     expect(parsed.managed).toBeUndefined();
@@ -115,6 +134,13 @@ describe('buildEntriesFromArgv', () => {
     expect(entries).toHaveLength(1);
     expect(entries![0].package).toBe('my-pkg@1.0.0');
     expect(entries![0].output!.path).toBe('./out');
+  });
+
+  it('builds entries with an explicit source', () => {
+    const parsed = parseArgv(['--packages', 'https://example.com/repo@main', '--source', 'git']);
+    const entries = buildEntriesFromArgv(parsed);
+    expect(entries![0].package).toBe('https://example.com/repo@main');
+    expect(entries![0].source).toBe('git');
   });
 
   it('leaves output path undefined when --output is not set', () => {
@@ -176,6 +202,12 @@ describe('applyArgvOverrides', () => {
     const parsed = parseArgv(['--keep-existing', '--packages', 'test-pkg']);
     const result = applyArgvOverrides([baseEntry], parsed);
     expect(result[0].output!.keepExisting).toBe(true);
+  });
+
+  it('applies --nosync override', () => {
+    const parsed = parseArgv(['--nosync', '--packages', 'test-pkg']);
+    const result = applyArgvOverrides([baseEntry], parsed);
+    expect(result[0].output!.noSync).toBe(true);
   });
 
   it('preserves config keepExisting=true when --keep-existing is not set on CLI', () => {
@@ -247,5 +279,11 @@ describe('applyArgvOverrides', () => {
     const parsed = parseArgv(['--verbose', '--packages', 'test-pkg']);
     const result = applyArgvOverrides([baseEntry], parsed);
     expect(result[0].verbose).toBe(true);
+  });
+
+  it('applies --source override', () => {
+    const parsed = parseArgv(['--source', 'git', '--packages', 'test-pkg']);
+    const result = applyArgvOverrides([baseEntry], parsed);
+    expect(result[0].source).toBe('git');
   });
 });

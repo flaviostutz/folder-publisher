@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { installMockPackage } from '../fileset/test-utils';
+import { createMockGitRepo, installMockPackage } from '../fileset/test-utils';
 import { readMarker, writeMarker } from '../fileset/markers';
 import { MARKER_FILE } from '../fileset/constants';
 import { ProgressEvent } from '../types';
@@ -211,6 +211,44 @@ describe('actionExtract', () => {
     expect(fs.readFileSync(path.join(outputDir, 'guide.md'), 'utf8')).toBe('user content');
   }, 60000);
 
+  it('keeps stale managed files on disk when noSync is enabled', async () => {
+    await installMockPackage(
+      'nosync-pkg',
+      '1.0.0',
+      { 'keep.md': '# Keep', 'stale.md': '# Stale' },
+      tmpDir,
+    );
+
+    const outputDir = path.join(tmpDir, 'output-nosync');
+    await actionExtract({
+      entries: [{ package: 'nosync-pkg', output: { path: outputDir, gitignore: false } }],
+      cwd: tmpDir,
+    });
+
+    const result = await actionExtract({
+      entries: [
+        {
+          package: 'nosync-pkg',
+          selector: { files: ['keep.md'] },
+          output: { path: outputDir, gitignore: false, noSync: true },
+        },
+      ],
+      cwd: tmpDir,
+    });
+
+    expect(result.deleted).toBe(0);
+    expect(fs.existsSync(path.join(outputDir, 'keep.md'))).toBe(true);
+    expect(fs.existsSync(path.join(outputDir, 'stale.md'))).toBe(true);
+
+    const marker = await readMarker(path.join(outputDir, MARKER_FILE));
+    expect(marker).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: 'keep.md' }),
+        expect.objectContaining({ path: 'stale.md' }),
+      ]),
+    );
+  }, 60000);
+
   it('deduplicates identical entries to avoid double extraction', async () => {
     await installMockPackage('circ-pkg', '1.0.0', { 'guide.md': 'content' }, tmpDir);
 
@@ -270,6 +308,59 @@ describe('actionExtract', () => {
     expect(fs.existsSync(path.join(outputDir, 'main-file.md'))).toBe(true);
     // dep-out path is relative to outputDir (path.join(outputConfig.path, depPath))
     expect(fs.existsSync(path.join(outputDir, 'dep-out', 'dep-file.md'))).toBe(true);
+  }, 90000);
+
+  it('extracts from git repositories, follows nested .npmdatarc, and cleans .npmdata-tmp afterwards', async () => {
+    const childRepo = await createMockGitRepo(
+      'extract-child',
+      { 'child/data.json': '{"ok":true}' },
+      tmpDir,
+      { tag: 'v1.0.0' },
+    );
+    const parentRepo = await createMockGitRepo(
+      'extract-parent',
+      { 'docs/guide.md': '# Parent Guide' },
+      tmpDir,
+      {
+        tag: 'v2.0.0',
+        npmdataConfig: {
+          sets: [
+            { output: { path: '.', gitignore: false } },
+            {
+              package: `${childRepo.repoUrl}@v1.0.0`,
+              source: 'git',
+              output: { path: 'nested', gitignore: false },
+            },
+          ],
+        },
+      },
+    );
+
+    const outputDir = path.join(tmpDir, 'git-output');
+    const result = await actionExtract({
+      entries: [
+        {
+          package: `${parentRepo.repoUrl}@v2.0.0`,
+          output: { path: outputDir, gitignore: false },
+        },
+      ],
+      cwd: tmpDir,
+    });
+
+    expect(result.added).toBe(2);
+    expect(fs.existsSync(path.join(outputDir, 'docs', 'guide.md'))).toBe(true);
+    expect(fs.existsSync(path.join(outputDir, 'nested', 'child', 'data.json'))).toBe(true);
+    expect(fs.existsSync(path.join(tmpDir, '.npmdata-tmp'))).toBe(false);
+    expect(fs.readFileSync(path.join(tmpDir, '.gitignore'), 'utf8')).toContain('.npmdata-tmp');
+
+    const parentMarker = await readMarker(path.join(outputDir, MARKER_FILE));
+    const childMarker = await readMarker(path.join(outputDir, 'nested', MARKER_FILE));
+    expect(parentMarker.map((entry) => entry.packageName)).toEqual(
+      expect.arrayContaining([parentRepo.repoUrl]),
+    );
+    expect(childMarker.map((entry) => entry.packageName)).toEqual(
+      expect.arrayContaining([childRepo.repoUrl]),
+    );
   }, 90000);
 
   it('entry presets field filters which top-level entries are extracted', async () => {

@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { installMockPackage } from '../fileset/test-utils';
+import { createMockGitRepo, installMockPackage } from '../fileset/test-utils';
 import { NpmdataExtractEntry } from '../types';
 
 import { resolveFiles, resolveFilesDetailed } from './resolve-files';
@@ -201,6 +201,67 @@ describe('resolveFiles', () => {
     );
 
     expect(files.map((f) => f.relPath)).toEqual([]);
+  }, 60000);
+
+  it('resolves a git source using auto-detection and a git ref', async () => {
+    const repo = await createMockGitRepo('git-leaf', { 'docs/guide.md': '# Git Guide' }, tmpDir, {
+      tag: 'v1.0.0',
+    });
+
+    const outputDir = path.join(tmpDir, 'output-git');
+    const entries: NpmdataExtractEntry[] = [
+      {
+        package: `${repo.repoUrl}@v1.0.0`,
+        output: { path: outputDir, gitignore: false },
+      },
+    ];
+
+    const files = await resolveFiles(entries, { cwd: tmpDir });
+
+    expect(files).toHaveLength(1);
+    expect(files[0].relPath).toBe('docs/guide.md');
+    expect(files[0].packageName).toBe(repo.repoUrl);
+    expect(files[0].packageVersion).toBe(repo.head);
+  }, 60000);
+
+  it('loads nested .npmdatarc config from cloned git repos recursively', async () => {
+    const childRepo = await createMockGitRepo(
+      'git-child',
+      { 'child/guide.md': '# Child Guide' },
+      tmpDir,
+      { tag: 'child-v1' },
+    );
+    const parentRepo = await createMockGitRepo('git-parent', { 'parent.md': '# Parent' }, tmpDir, {
+      tag: 'parent-v1',
+      npmdataConfig: {
+        sets: [
+          { output: { path: '.', gitignore: false } },
+          {
+            package: `${childRepo.repoUrl}@child-v1`,
+            source: 'git',
+            output: { path: 'nested', gitignore: false },
+          },
+        ],
+      },
+    });
+
+    const outputDir = path.join(tmpDir, 'output-git-nested');
+    const files = await resolveFiles(
+      [
+        {
+          package: `${parentRepo.repoUrl}@parent-v1`,
+          output: { path: outputDir, gitignore: false },
+        },
+      ],
+      { cwd: tmpDir },
+    );
+
+    expect(files.map((file) => file.relPath)).toEqual(
+      expect.arrayContaining(['parent.md', 'child/guide.md']),
+    );
+    expect(files.find((file) => file.relPath === 'child/guide.md')?.outputDir).toBe(
+      path.join(outputDir, 'nested'),
+    );
   }, 60000);
 
   it('uses self sets for split managed and unmanaged package files', async () => {

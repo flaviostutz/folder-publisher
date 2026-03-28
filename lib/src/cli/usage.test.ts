@@ -25,6 +25,8 @@ describe('printUsage', () => {
     printUsage('extract');
     expect(lines.join('\n')).toMatch(/npmdata.*extract/i);
     expect(lines.join('\n')).toMatch(/--output/);
+    expect(lines.join('\n')).toMatch(/--nosync/);
+    expect(lines.join('\n')).toMatch(/--source/);
   });
 
   it('prints check usage when command is "check"', () => {

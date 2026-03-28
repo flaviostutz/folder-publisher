@@ -5,6 +5,7 @@ import { cleanupTempPackageJson, formatDisplayPath } from '../utils';
 import { resolveFilesDetailed } from './resolve-files';
 import { calculateDiff } from './calculate-diff';
 import { isManagedSymlinkEntry } from './symlinks';
+import { createSourceRuntime } from './source';
 
 export type CheckOptions = BasicPackageOptions & {
   onProgress?: (event: ProgressEvent) => void;
@@ -28,6 +29,7 @@ export type CheckSummary = {
 export async function actionCheck(options: CheckOptions): Promise<CheckSummary> {
   const { entries, cwd, verbose = false, onProgress } = options;
   const summary: CheckSummary = { missing: [], conflict: [], extra: [] };
+  const sourceRuntime = createSourceRuntime(cwd, verbose);
 
   if (verbose) {
     console.log(`[verbose] actionCheck: resolving files (cwd: ${formatDisplayPath(cwd, cwd)})`);
@@ -41,6 +43,7 @@ export async function actionCheck(options: CheckOptions): Promise<CheckSummary> 
     const resolved = await resolveFilesDetailed(managedEntries, {
       cwd,
       verbose,
+      sourceRuntime,
       onProgress: (e) => {
         if (e.type === 'package-start' || e.type === 'package-end') onProgress?.(e);
       },
@@ -82,6 +85,7 @@ export async function actionCheck(options: CheckOptions): Promise<CheckSummary> 
 
     return summary;
   } finally {
+    sourceRuntime.cleanup();
     cleanupTempPackageJson(cwd, verbose);
   }
 }

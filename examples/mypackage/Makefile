@@ -24,6 +24,7 @@ clean:
 	@rm -rf bin
 	make clean -C ../mypackage-consumer
 	make clean -C ../cli-config
+	make clean -C ../git-sources-config
 	make clean -C ../split-set-config
 
 test:
@@ -35,6 +36,7 @@ test:
 
 	cd ../mypackage-consumer && make test
 	cd ../cli-config && make test
+	cd ../git-sources-config && make test
 	cd ../split-set-config && make test
 
 install:

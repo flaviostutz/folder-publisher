@@ -140,6 +140,12 @@ describe('runExtract — CLI overrides applied to config entries', () => {
     expect(entries[0].output!.keepExisting).toBe(true);
   });
 
+  it('overrides noSync with --nosync', async () => {
+    await runExtract(CONFIG_WITH_SETS, ['--nosync'], '/cwd');
+    const { entries } = mockActionExtract.mock.calls[0][0];
+    expect(entries[0].output!.noSync).toBe(true);
+  });
+
   it('overrides silent with --silent', async () => {
     await runExtract(CONFIG_WITH_SETS, ['--silent'], '/cwd');
     const { entries } = mockActionExtract.mock.calls[0][0];
