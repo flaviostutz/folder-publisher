@@ -28,6 +28,7 @@ Each entry in the `sets` array supports the same fields as a data-package `"file
 {
   "name": "my-project",
   "filedist": {
+    "defaultPresets": ["basic"],
     "sets": [
       {
         "package": "example-files-package",
@@ -43,6 +44,7 @@ Each entry in the `sets` array supports the same fields as a data-package `"file
 
 ```json
 {
+  "defaultPresets": ["basic"],
   "sets": [
     {
       "package": "example-files-package",
@@ -59,7 +61,7 @@ Each entry in the `sets` array supports the same fields as a data-package `"file
 # installs dependencies (requires mypackage/ to be built first)
 make install
 
-# extracts files – no --packages argument needed
+# extracts files – no --packages argument needed; defaultPresets=["basic"] is applied
 pnpm exec filedist extract
 
 # verifies local files are in sync
@@ -78,6 +80,7 @@ Entries can be tagged with `presets` so that only a subset is processed when `--
 
 ```json
 {
+  "defaultPresets": ["basic"],
   "sets": [
     { "package": "example-files-package", "presets": ["basic"], "output": { "path": "output" } },
     { "package": "eslint@8",              "presets": ["extra"],  "output": { "path": "output/eslint", "managed": false } }
@@ -91,12 +94,19 @@ pnpm exec filedist presets
 # → basic
 # → extra
 
-# extract only "basic"-tagged entries
-pnpm exec filedist extract --presets basic
+# extract using the configured default preset set (same effect as --presets basic)
+pnpm exec filedist extract
 
-# check only "basic"-tagged entries
-pnpm exec filedist check --presets basic
+# override the configured default and run a different preset set
+pnpm exec filedist extract --presets extra
+
+# check using the configured default preset set
+pnpm exec filedist check
 ```
+
+When `defaultPresets` is defined at the root of the config, `extract`, `check`, and `purge`
+behave as if those tags had been passed via `--presets`. Passing `--presets` explicitly overrides
+the configured default for that one invocation.
 
 > **`presets` vs `selector.presets`**
 >
@@ -123,14 +133,15 @@ Each entry supports the same fields as a data-package `"filedist.sets"` array en
 
 | Field | Type | Description |
 |---|---|---|
+| `defaultPresets` | `string[]` | Root-level preset fallback used by `extract`, `check`, and `purge` when `--presets` is omitted |
 | `package` | `string` | Package name/spec to extract from (e.g. `"my-pkg"` or `"my-pkg@^1.0.0"`) |
-| `outputDir` | `string` | Directory to extract files into (relative to cwd) |
-| `files` | `string[]` | Glob patterns to filter which files are extracted |
-| `tags` | `string[]` | Optional tags for filtering with `--tags` |
-| `force` | `boolean` | Overwrite existing files |
-| `keepExisting` | `boolean` | Skip files that already exist |
-| `gitignore` | `boolean` | Manage `.gitignore` (default: `true`) |
-| `managed` | `boolean` | Write with `.filedist` marker (default: `true`). Set to `false` to skip tracking |
-| `dryRun` | `boolean` | Simulate without writing |
+| `output.path` | `string` | Directory to extract files into (relative to cwd) |
+| `selector.files` | `string[]` | Glob patterns to filter which files are extracted |
+| `presets` | `string[]` | Optional preset tags for filtering with `--presets` |
+| `output.force` | `boolean` | Overwrite existing files |
+| `output.keepExisting` | `boolean` | Skip files that already exist |
+| `output.gitignore` | `boolean` | Manage `.gitignore` (default: `true`) |
+| `output.managed` | `boolean` | Write with `.filedist` marker (default: `true`). Set to `false` to skip tracking |
+| `output.dryRun` | `boolean` | Simulate without writing |
 | `silent` | `boolean` | Suppress per-file output |
 | `verbose` | `boolean` | Print detailed progress |

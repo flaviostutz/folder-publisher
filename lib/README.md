@@ -78,6 +78,7 @@ Add an `filedist` configuration directly to a project's own `package.json` (or a
 {
   "name": "my-project",
   "filedist": {
+    "defaultPresets": ["prod"],
     "sets": [
       {
         "package": "base-datasets@^3.0.0",
@@ -117,9 +118,9 @@ Then run any command without `--packages`:
 
 ```sh
 npx filedist           # same as 'npx filedist extract'
-npx filedist extract   # reads config, extracts all entries
-npx filedist check     # checks all entries
-npx filedist purge     # purges all entries
+npx filedist extract   # reads config, extracts all entries or only defaultPresets when defined
+npx filedist check     # checks the same effective set selection
+npx filedist purge     # purges the same effective set selection
 ```
 
 Config is resolved using [cosmiconfig](https://github.com/cosmiconfig/cosmiconfig). Sources searched in order from the current directory:
@@ -133,6 +134,7 @@ Config is resolved using [cosmiconfig](https://github.com/cosmiconfig/cosmiconfi
 | `filedist.config.js` | CommonJS module exporting object with `sets` array |
 
 All runner flags (`--dry-run`, `--silent`, `--verbose`, `--gitignore=false`, `--managed=false`, `--presets`, `--output`) work as usual.
+When `filedist.defaultPresets` is defined, `extract`, `check`, and `purge` behave as if `--presets <tags>` had been passed automatically. Passing `--presets` explicitly overrides that configured default for the current invocation.
 
 Config-file mode can mix npm packages and git repositories in the same `sets` array. Use the `git:` prefix for git entries.
 
@@ -282,6 +284,12 @@ Each entry in the `filedist.sets` array in `package.json` supports the following
 | `presets` | `string[]` | none | Presets used to group and selectively run entries with `--presets`. |
 | `output.symlinks` | `SymlinkConfig[]` | none | Post-extract symlink operations (see below). |
 | `output.contentReplacements` | `ContentReplacementConfig[]` | none | Post-extract content-replacement operations (see below). |
+
+Top-level config fields:
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `defaultPresets` | `string[]` | none | CLI-only fallback for config-file mode. `extract`, `check`, and `purge` behave as if `--presets <tags>` had been passed when the flag is omitted. |
 
 #### SymlinkConfig
 

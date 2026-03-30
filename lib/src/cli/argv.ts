@@ -2,6 +2,10 @@
 import { FiledistConfig, FiledistExtractEntry, SelectorConfig, OutputConfig } from '../types';
 import { filterEntriesByPresets } from '../utils';
 
+export type FiledistCliConfig = FiledistConfig & {
+  defaultPresets?: string[];
+};
+
 /**
  * Parsed CLI flags for all commands.
  * All flags are undefined when not supplied on the command line;
@@ -28,6 +32,37 @@ export type ParsedArgv = {
   silent?: boolean;
   verbose?: boolean;
 };
+
+export function resolveEffectivePresets(
+  parsed: ParsedArgv,
+  config?: FiledistCliConfig | null,
+): string[] {
+  return parsed.presets ?? config?.defaultPresets ?? [];
+}
+
+function buildSelectorFromArgv(parsed: ParsedArgv, presets: string[]): SelectorConfig {
+  const selector: SelectorConfig = {};
+
+  if (parsed.files) selector.files = parsed.files;
+  if (parsed.exclude) selector.exclude = parsed.exclude;
+  if (parsed.contentRegexes) selector.contentRegexes = parsed.contentRegexes;
+  if (presets.length > 0) selector.presets = presets;
+  if (parsed.upgrade !== undefined) selector.upgrade = parsed.upgrade;
+
+  return selector;
+}
+
+function buildOutputFromArgv(parsed: ParsedArgv): OutputConfig {
+  return {
+    ...(parsed.output !== undefined ? { path: parsed.output } : {}),
+    ...(parsed.force !== undefined ? { force: parsed.force } : {}),
+    ...(parsed.keepExisting !== undefined ? { keepExisting: parsed.keepExisting } : {}),
+    ...(parsed.nosync !== undefined ? { noSync: parsed.nosync } : {}),
+    ...(parsed.gitignore !== undefined ? { gitignore: parsed.gitignore } : {}),
+    ...(parsed.managed !== undefined ? { managed: parsed.managed } : {}),
+    ...(parsed.dryRun !== undefined ? { dryRun: parsed.dryRun } : {}),
+  };
+}
 
 /**
  * Parse all supported CLI flags from an argv array.
@@ -97,33 +132,21 @@ export function parseArgv(argv: string[]): ParsedArgv {
  * Build FiledistExtractEntry objects from --packages + --output CLI flags.
  * Returns null if --packages is not set.
  */
-export function buildEntriesFromArgv(parsed: ParsedArgv): FiledistExtractEntry[] | null {
+export function buildEntriesFromArgv(
+  parsed: ParsedArgv,
+  presets: string[] = parsed.presets ?? [],
+): FiledistExtractEntry[] | null {
   if (!parsed.packages || parsed.packages.length === 0) {
     // eslint-disable-next-line unicorn/no-null
     return null;
   }
 
-  const selector: SelectorConfig = {};
-  if (parsed.files) selector.files = parsed.files;
-  if (parsed.exclude) selector.exclude = parsed.exclude;
-  if (parsed.contentRegexes) selector.contentRegexes = parsed.contentRegexes;
   // In ad-hoc --packages mode there is no entry-level presets tag, so we place
   // --presets into selector.presets. filterEntriesByPresets checks both fields,
   // which keeps --presets filtering working in this mode.
   // selector.presets is also forwarded to the target package's nested set extraction.
-  if (parsed.presets) selector.presets = parsed.presets;
-
-  if (parsed.upgrade !== undefined) selector.upgrade = parsed.upgrade;
-
-  const output: OutputConfig = {
-    ...(parsed.output !== undefined ? { path: parsed.output } : {}),
-    ...(parsed.force !== undefined ? { force: parsed.force } : {}),
-    ...(parsed.keepExisting !== undefined ? { keepExisting: parsed.keepExisting } : {}),
-    ...(parsed.nosync !== undefined ? { noSync: parsed.nosync } : {}),
-    ...(parsed.gitignore !== undefined ? { gitignore: parsed.gitignore } : {}),
-    ...(parsed.managed !== undefined ? { managed: parsed.managed } : {}),
-    ...(parsed.dryRun !== undefined ? { dryRun: parsed.dryRun } : {}),
-  };
+  const selector = buildSelectorFromArgv(parsed, presets);
+  const output = buildOutputFromArgv(parsed);
 
   return parsed.packages.map((pkg) => ({
     package: pkg,
@@ -185,7 +208,9 @@ export function resolveEntriesFromConfigAndArgs(
   argv: string[],
 ): FiledistExtractEntry[] {
   const parsed = parseArgv(argv);
-  let entries = buildEntriesFromArgv(parsed);
+  const effectivePresets = resolveEffectivePresets(parsed, config as FiledistCliConfig | null);
+
+  let entries = buildEntriesFromArgv(parsed, effectivePresets);
   if (!entries) {
     if (!config || config.sets.length === 0) {
       throw new Error(`No packages specified. Use --packages or a config file with sets.`);
@@ -194,7 +219,6 @@ export function resolveEntriesFromConfigAndArgs(
   }
 
   // filter by presets
-  const presets = parsed.presets ?? [];
-  const filtered = filterEntriesByPresets(entries, presets);
+  const filtered = filterEntriesByPresets(entries, effectivePresets);
   return filtered;
 }

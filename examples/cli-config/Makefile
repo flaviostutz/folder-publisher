@@ -14,11 +14,12 @@ test: clean install
 
 	# --- Test 1: config from package.json "filedist" key ---
 	# extract without --packages: reads entries from the "filedist" key in package.json
+	# and applies filedist.defaultPresets=["basic"]
 	pnpm exec filedist extract
 	test -e output/docs/README.md
 	test -e output/docs/adrs/adr-001-sample1.md
 	test -e output/data/users-dataset/user1.json
-	test -e output/eslint/conf/globals.js
+	test ! -e output/eslint/conf/globals.js
 	test -e output/lastUpdated
 
 	# check without --packages: reads entries from package.json
@@ -28,8 +29,7 @@ test: clean install
 	pnpm exec filedist purge
 	test ! -e output/docs/README.md
 	test ! -e output/data/users-dataset/user1.json
-#	eslint is managed=false, so it should still be present after purge
-	test -e output/eslint/conf/globals.js
+	test -e output/lastUpdated
 
 	# --- Test 2: config from .filedistrc ---
 	# temporarily move the "filedist" field out of package.json and write .filedistrc
@@ -39,50 +39,34 @@ test: clean install
 	pnpm exec filedist extract
 	test -e output/docs/README.md
 	test -e output/data/users-dataset/user1.json
-	test -e output/eslint/conf/globals.js
+	test ! -e output/eslint/conf/globals.js
 	test -e output/lastUpdated
 
 	pnpm exec filedist check
 	test -e output/docs/README.md
 	pnpm exec filedist purge
 	test ! -e output/docs/README.md
-# 	managed=false should be left behind without purge
-	test -e output/eslint/conf/globals.js
+	test -e output/lastUpdated
 
 	# restore original package.json
 	cp package.json.orig package.json
 	rm .filedistrc
 
-	# --- Test 3: presets filtering via config ---
+	# --- Test 3: explicit --presets overrides defaultPresets ---
 	rm -rf output
-	pnpm exec filedist extract --presets "basic"
-	# basic-tagged entry (example-files-package docs and data) should be extracted
-	test -e output/docs/adrs/adr-001-sample1.md
-	test -e output/data/users-dataset/user1.json
-	# postExtractScript should run even when --presets is used
-	test -e output/lastUpdated
-	# extra-tagged entry (eslint) should not be extracted
-	test ! -e output/eslint/conf/globals.js
-	pnpm exec filedist check --presets "basic"
-	pnpm exec filedist purge --presets "basic"
+	pnpm exec filedist extract --presets "nested-eslint"
+	test -e output/nested-eslint/conf/globals.js
 	test ! -e output/docs/adrs/adr-001-sample1.md
 	test ! -e output/data/users-dataset/user1.json
 	test -e output/lastUpdated
+	pnpm exec filedist check --presets "nested-eslint"
+	pnpm exec filedist purge --presets "nested-eslint"
+	test ! -e output/nested-eslint/conf/globals.js
 
 	# --- Test 4: presets command lists all preset tags ---
 	pnpm exec filedist presets | grep -x "basic"
 	pnpm exec filedist presets | grep -x "extra"
 	pnpm exec filedist presets | grep -x "nested-eslint"
-
-	# --- Test 5: selector presets - only extract eslint-related nested sets ---
-	rm -rf output
-	pnpm exec filedist extract --presets "nested-eslint"
-	# nested eslint set (selector.presets=["eslint"]) should have extracted conf/globals.js because it's part of an entry with the "nested-eslint" preset tag
-	test -e output/nested-eslint/conf/globals.js
-	# docs and data should not be extracted because they are not part of the nested "eslint" preset
-	test ! -e output/nested-eslint/data/users-dataset/user1.json
-	test ! -e output/nested-eslint/docs/README.md
-	pnpm exec filedist check --presets "nested-eslint"
 
 	@echo "All config-file mode tests passed"
 

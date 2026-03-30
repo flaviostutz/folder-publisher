@@ -100,6 +100,38 @@ describe('runPurge — options forwarding', () => {
     const callArg = mockActionPurge.mock.calls[0][0];
     expect(callArg.verbose).toBe(true);
   });
+
+  it('filters config entries using defaultPresets when --presets is omitted', async () => {
+    const config = {
+      defaultPresets: ['docs'],
+      sets: [
+        { package: 'pkg-docs@1.0.0', output: { path: './docs' }, presets: ['docs'] },
+        { package: 'pkg-api@1.0.0', output: { path: './api' }, presets: ['api'] },
+      ],
+    };
+
+    await runPurge(config, [], '/cwd');
+
+    const callArg = mockActionPurge.mock.calls[0][0];
+    expect(callArg.entries).toHaveLength(1);
+    expect(callArg.entries[0].package).toBe('pkg-docs@1.0.0');
+  });
+
+  it('lets explicit --presets override config defaultPresets', async () => {
+    const config = {
+      defaultPresets: ['docs'],
+      sets: [
+        { package: 'pkg-docs@1.0.0', output: { path: './docs' }, presets: ['docs'] },
+        { package: 'pkg-api@1.0.0', output: { path: './api' }, presets: ['api'] },
+      ],
+    };
+
+    await runPurge(config, ['--presets', 'api'], '/cwd');
+
+    const callArg = mockActionPurge.mock.calls[0][0];
+    expect(callArg.entries).toHaveLength(1);
+    expect(callArg.entries[0].package).toBe('pkg-api@1.0.0');
+  });
 });
 
 describe('runPurge — onProgress handler', () => {

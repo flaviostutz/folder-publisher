@@ -321,4 +321,40 @@ describe('cli', () => {
 
     expect(fs.existsSync(path.join(outputDir, 'docs/guide.md'))).toBe(true);
   }, 60_000);
+
+  it('config defaultPresets are used when --presets is omitted and overridden when provided', async () => {
+    const defaultOutput = path.join(tmpDir, 'output-default');
+    const overrideOutput = path.join(tmpDir, 'output-override');
+    const configFile = path.join(tmpDir, 'default-presets.json');
+
+    fs.writeFileSync(
+      configFile,
+      JSON.stringify({
+        defaultPresets: ['docs'],
+        sets: [
+          {
+            package: PKG_NAME,
+            selector: { files: ['docs/guide.md'] },
+            output: { path: defaultOutput, gitignore: false },
+            presets: ['docs'],
+          },
+          {
+            package: PKG_NAME,
+            selector: { files: ['docs/api.md'] },
+            output: { path: overrideOutput, gitignore: false },
+            presets: ['api'],
+          },
+        ],
+      }),
+    );
+
+    await cli(['node', 'filedist', 'extract', '--config', configFile], tmpDir);
+
+    expect(fs.existsSync(path.join(defaultOutput, 'docs/guide.md'))).toBe(true);
+    expect(fs.existsSync(path.join(overrideOutput, 'docs/api.md'))).toBe(false);
+
+    await cli(['node', 'filedist', 'extract', '--config', configFile, '--presets', 'api'], tmpDir);
+
+    expect(fs.existsSync(path.join(overrideOutput, 'docs/api.md'))).toBe(true);
+  }, 60_000);
 });

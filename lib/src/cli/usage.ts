@@ -28,7 +28,7 @@ Options:
   --managed [bool]        Enable/disable managed mode (default: true). Use --managed=false to write without .filedist marker.
   --dry-run               Report changes without writing to disk.
   --upgrade               Force fresh package install even if satisfying version installed.
-  --presets <tags>        Comma-separated preset tags; only matching entries are processed.
+  --presets <tags>        Comma-separated preset tags; only matching entries are processed. Overrides config defaultPresets.
   --config <file>         Path to a config file (overrides auto-discovered .filedistrc / package.json).
   --silent                Suppress per-file output; print only final summary line.
   --verbose, -v           Print detailed step information.
@@ -51,7 +51,7 @@ Options:
   --files <globs>         Glob patterns for file selection.
   --content-regex <re>    Regex strings for content filtering.
   --managed [bool]        Silently skip unmanaged entries. Use --managed=false.
-  --presets <tags>        Comma-separated preset tags; only matching entries are checked.
+  --presets <tags>        Comma-separated preset tags; only matching entries are checked. Overrides config defaultPresets.
   --config <file>         Path to a config file (overrides auto-discovered .filedistrc / package.json).
   --verbose, -v           Print detailed comparison information.
   --help                  Print this help text.
@@ -86,7 +86,7 @@ Remove all managed files from the output directory.
 Options:
   --packages <specs>      Comma-separated package specs. Limits purge to matching entries.
   --output, -o <dir>      Output directory to purge.
-  --presets <tags>        Comma-separated preset tags; only matching entries are purged.
+  --presets <tags>        Comma-separated preset tags; only matching entries are purged. Overrides config defaultPresets.
   --dry-run               Print what would be removed without deleting.
   --config <file>         Path to a config file (overrides auto-discovered .filedistrc / package.json).
   --silent                Suppress per-file output.
@@ -119,7 +119,7 @@ Usage: filedist presets
 
 List all unique preset tags defined in the configuration.
 Presets are declared in each entry's "presets" field and can be used
-to selectively run extract, check, list, or purge via --presets <tag>.
+to selectively run extract, check, or purge via --presets <tag>.
 
 Options:
   --config <file>         Path to a config file (overrides auto-discovered .filedistrc / package.json).

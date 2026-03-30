@@ -1,7 +1,12 @@
 import { FiledistExtractEntry } from '../types';
 import { filterEntriesByPresets } from '../utils';
 
-import { parseArgv, buildEntriesFromArgv, applyArgvOverrides } from './argv';
+import {
+  parseArgv,
+  buildEntriesFromArgv,
+  applyArgvOverrides,
+  resolveEntriesFromConfigAndArgs,
+} from './argv';
 
 describe('parseArgv', () => {
   it('parses --force flag', () => {
@@ -276,5 +281,49 @@ describe('applyArgvOverrides', () => {
     const parsed = parseArgv(['--packages', 'test-pkg']);
     const result = applyArgvOverrides([entry], parsed);
     expect(result[0].package).toBe('git:github.com/acme/repo.git@main');
+  });
+});
+
+describe('resolveEntriesFromConfigAndArgs', () => {
+  it('uses config defaultPresets when --presets is not provided', () => {
+    const config = {
+      defaultPresets: ['docs'],
+      sets: [
+        { package: 'pkg-docs', output: { path: '.' }, presets: ['docs'] },
+        { package: 'pkg-api', output: { path: '.' }, presets: ['api'] },
+      ],
+    };
+
+    const entries = resolveEntriesFromConfigAndArgs(config, []);
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0].package).toBe('pkg-docs');
+  });
+
+  it('prefers explicit --presets over config defaultPresets', () => {
+    const config = {
+      defaultPresets: ['docs'],
+      sets: [
+        { package: 'pkg-docs', output: { path: '.' }, presets: ['docs'] },
+        { package: 'pkg-api', output: { path: '.' }, presets: ['api'] },
+      ],
+    };
+
+    const entries = resolveEntriesFromConfigAndArgs(config, ['--presets', 'api']);
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0].package).toBe('pkg-api');
+  });
+
+  it('applies config defaultPresets to ad-hoc --packages mode', () => {
+    const config = {
+      defaultPresets: ['docs'],
+      sets: [],
+    };
+
+    const entries = resolveEntriesFromConfigAndArgs(config, ['--packages', 'pkg-docs']);
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0].selector?.presets).toEqual(['docs']);
   });
 });

@@ -27,12 +27,24 @@ export async function binpkg(binDir: string, args: string[]): Promise<void> {
   const pkgRootDir = path.join(binDir, '..');
   const pkgJson = JSON.parse(fs.readFileSync(path.join(pkgRootDir, 'package.json')).toString()) as {
     name: string;
+    filedist?: {
+      defaultPresets?: string[];
+    };
   };
   const pkgName = pkgJson.name;
+  const defaultPresets = pkgJson.filedist?.defaultPresets ?? [];
+
+  const effectiveArgs = [...args];
+  if (!effectiveArgs.includes('--presets') && defaultPresets.length > 0) {
+    effectiveArgs.push('--presets', defaultPresets.join(','));
+  }
 
   // Inject --packages <pkgName> so cli builds a synthetic single-set entry from args.
   // No configCwd is passed, so the data package's own filedist config is not loaded.
-  const exitCode = await cli(['node', 'filedist', ...args, '--packages', pkgName], process.cwd());
+  const exitCode = await cli(
+    ['node', 'filedist', ...effectiveArgs, '--packages', pkgName],
+    process.cwd(),
+  );
   // eslint-disable-next-line unicorn/no-process-exit
   process.exit(exitCode);
 }

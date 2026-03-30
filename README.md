@@ -72,6 +72,7 @@ Declare sources in `.filedistrc` (or `package.json`) and run `extract` without `
 
 ```json
 {
+  "defaultPresets": ["prod"],
   "sets": [
     {
       "package": "base-datasets@^3.0.0",
@@ -98,9 +99,9 @@ Declare sources in `.filedistrc` (or `package.json`) and run `extract` without `
 ```
 
 ```sh
-npx filedist extract   # reads config, extracts all sets
-npx filedist check     # verifies files are in sync
-npx filedist purge     # removes all managed files
+npx filedist extract   # reads config, extracts all sets or only defaultPresets when defined
+npx filedist check     # verifies files are in sync for the same effective set selection
+npx filedist purge     # removes managed files for the same effective set selection
 ```
 
 After `extract`, the output directory will contain the selected files alongside a `.filedist` marker file that tracks ownership and enables safe updates:
@@ -114,6 +115,8 @@ After `extract`, the output directory will contain the selected files alongside 
 ```
 
 Config is resolved looking at files: `package.json` (`"filedist"` key), `.filedistrc`, `.filedistrc.json`, `.filedistrc.yaml`, or `filedist.config.js`. Pass `--config <file>` to point to an explicit config file and skip auto-discovery.
+
+When `defaultPresets` is defined at the root of the config, `extract`, `check`, and `purge` behave the same as if `--presets <tags>` had been passed. An explicit `--presets` flag overrides the configured default for that invocation.
 
 The same config file can mix npm packages and git repositories. Use the `git:` prefix for git entries. A git repository source can also provide its own `.filedistrc` or `package.json#filedist` with `sets`, and those nested sets participate in the same hierarchical resolution.
 
@@ -292,6 +295,8 @@ npx filedist purge --packages my-shared-assets --output ./data --dry-run
 npx filedist presets
 ```
 
+In config-file mode you can define a root-level `defaultPresets` array so `extract`, `check`, and `purge` automatically run the same filtered subset without requiring `--presets` every time.
+
 ---
 
 ## Entry options reference
@@ -316,6 +321,13 @@ Each entry in `filedist.sets` supports:
 | `output.dryRun` | `boolean` | `false` | Simulate without writing |
 | `output.symlinks` | `SymlinkConfig[]` | none | Post-extract symlink operations |
 | `output.contentReplacements` | `ContentReplacementConfig[]` | none | Post-extract content replacements |
+
+Top-level config fields:
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `defaultPresets` | `string[]` | none | CLI-only fallback for config-file mode. `extract`, `check`, and `purge` behave as if `--presets <tags>` had been passed when the flag is omitted |
+| `postExtractScript` | `string` | none | Shell command run after a successful non-dry-run `extract`. The full extract argv is appended |
 
 ### SymlinkConfig
 
@@ -513,6 +525,21 @@ Set `postExtractScript` at the top level of your config to run a shell command a
   }
 }
 ```
+
+### defaultPresets
+
+Set `defaultPresets` at the top level of your config to make `extract`, `check`, and `purge` default to the same preset filter you would otherwise pass through `--presets`.
+
+```json
+{
+  "filedist": {
+    "defaultPresets": ["prod", "reports"],
+    "sets": []
+  }
+}
+```
+
+Running `npx filedist extract` with that config behaves the same as `npx filedist extract --presets prod,reports`. Passing `--presets` explicitly overrides `defaultPresets` for that command.
 
 ---
 

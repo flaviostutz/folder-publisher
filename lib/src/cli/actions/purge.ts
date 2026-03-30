@@ -1,6 +1,13 @@
 /* eslint-disable no-console */
 import { FiledistConfig, FiledistExtractEntry } from '../../types';
-import { parseArgv, buildEntriesFromArgv, applyArgvOverrides } from '../argv';
+import { filterEntriesByPresets } from '../../utils';
+import {
+  parseArgv,
+  buildEntriesFromArgv,
+  applyArgvOverrides,
+  resolveEffectivePresets,
+  FiledistCliConfig,
+} from '../argv';
 import { printUsage } from '../usage';
 import { formatProgressFile } from '../progress';
 import { actionPurge } from '../../package/action-purge';
@@ -19,14 +26,17 @@ export async function runPurge(
   }
 
   const parsed = parseArgv(argv);
+  const effectivePresets = resolveEffectivePresets(parsed, config as FiledistCliConfig | null);
 
   let entries: FiledistExtractEntry[] = [];
-  const cliEntries = buildEntriesFromArgv(parsed);
+  const cliEntries = buildEntriesFromArgv(parsed, effectivePresets);
   if (cliEntries) {
     entries = cliEntries;
   } else if (config && config.sets.length > 0) {
     entries = applyArgvOverrides(config.sets, parsed);
   }
+
+  entries = filterEntriesByPresets(entries, effectivePresets);
 
   const summary = await actionPurge({
     entries,
