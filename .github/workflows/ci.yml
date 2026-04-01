@@ -18,28 +18,29 @@ jobs:
 
   ci-windows-lib:
     runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.14.0'
-      - uses: pnpm/action-setup@v4
-        with:
-          version: '10.31.0'
-      - run: pnpm install --frozen-lockfile --config.dedupe-peer-dependents=false
-        working-directory: lib
+      - uses: jdx/mise-action@v3
       - run: |
-          'node -e "require(''node:fs'').rmSync(''dist'', { recursive: true, force: true })"'
+          pnpm install --frozen-lockfile --config.dedupe-peer-dependents=false
+          node -e "require('node:fs').rmSync('dist', { recursive: true, force: true })"
           pnpm exec tsc --outDir dist
           pnpm pack --pack-destination dist
         working-directory: lib
-      - run: pnpm install --config.dedupe-peer-dependents=false
+      - run: |
+          pnpm install --frozen-lockfile
+          node -e "require('node:fs').rmSync('dist', { recursive: true, force: true })"
+          pnpm pack --pack-destination dist
         working-directory: examples/mypackage
-      - run: pnpm pack --pack-destination dist
-        working-directory: examples/mypackage
-      - run: pnpm install --config.dedupe-peer-dependents=false
-        working-directory: examples/cli-config
-      - run: pnpm exec filedist extract
-        working-directory: examples/cli-config
-      - run: node ../../.github/scripts/check-cli-config-symlinks.cjs
+      - run: |
+          Copy-Item -Force package.json.orig package.json
+          pnpm add filedist@file:../../lib/dist/filedist-0.0.1.tgz
+          pnpm add example-files-package@file:../mypackage/dist/example-files-package-1.0.0.tgz
+          pnpm install --no-frozen-lockfile
+          pnpm exec filedist extract
+          pnpm exec filedist check
+          node ../../.github/scripts/check-cli-config-symlinks.cjs
         working-directory: examples/cli-config
