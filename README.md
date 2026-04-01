@@ -98,6 +98,8 @@ Declare sources in `.filedistrc` (or `package.json`) and run `extract` without `
 }
 ```
 
+For a local Windows path, use the same `file://` form with a drive letter, for example `git:file:///C:/work/local-repo@v2.0.0`.
+
 ```sh
 npx filedist extract   # reads config, extracts all sets or only defaultPresets when defined
 npx filedist check     # verifies files are in sync for the same effective set selection
@@ -307,7 +309,7 @@ Each entry in `filedist.sets` supports:
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `package` | `string` | none | Source spec for external entries: npm (`my-pkg`, `npm:my-pkg@^1.2.3`) or git (`git:github.com/org/repo.git@ref`, `git:file:///tmp/repo@main`) |
+| `package` | `string` | none | Source spec for external entries: npm (`my-pkg`, `npm:my-pkg@^1.2.3`) or git (`git:github.com/org/repo.git@ref`, `git:file:///tmp/repo@main`, `git:file:///C:/tmp/repo@main`) |
 | `presets` | `string[]` | none | Tags this entry so it is included only when the matching `--presets <tag>` flag is used. Listed by `filedist presets` |
 | `output.path` | `string` | `.` (cwd) | Extraction directory, relative to where the command runs |
 | `selector.files` | `string[]` | all files | Glob patterns to filter extracted files |
@@ -329,7 +331,7 @@ Top-level config fields:
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `defaultPresets` | `string[]` | none | CLI-only fallback for config-file mode. `extract`, `check`, and `purge` behave as if `--presets <tags>` had been passed when the flag is omitted |
-| `postExtractScript` | `string` | none | Shell command run after a successful non-dry-run `extract`. The full extract argv is appended |
+| `postExtractCmd` | `string[]` | none | Command argv run after a successful non-dry-run `extract`. The first array item is the executable and the remaining items are its arguments. Full extract argv is appended |
 
 ### SymlinkConfig
 
@@ -518,14 +520,16 @@ type ProgressEvent =
   | { type: 'file-skipped';  packageName: string; file: string };
 ```
 
-### postExtractScript
+### postExtractCmd
 
-Set `postExtractScript` at the top level of your config to run a shell command after a successful (non-dry-run) `extract`. The full argv of the extract call is appended automatically.
+Set `postExtractCmd` at the top level of your config to run a command after a successful (non-dry-run) `extract`. Use an array so the executable and its arguments are passed directly without a shell. The full argv of the extract call is appended automatically.
+
+`postExtractCmd` must be an argv array. Shell strings such as `"node scripts/post-extract.js"` are rejected with a configuration error because they are a common source of mistakes.
 
 ```json
 {
   "filedist": {
-    "postExtractScript": "node scripts/post-extract.js",
+    "postExtractCmd": ["node", "scripts/post-extract.js"],
     "sets": []
   }
 }

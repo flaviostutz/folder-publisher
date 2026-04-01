@@ -7,6 +7,30 @@ import { formatProgressFile } from '../progress';
 import { actionExtract } from '../../package/action-extract';
 import { spawnWithLog } from '../../utils';
 
+const POST_EXTRACT_CMD_EXAMPLE = '["node", "scripts/post-extract.js"]';
+
+function resolvePostExtractCmd(
+  postExtractCmd: unknown,
+  argv: string[],
+): { command: string; args: string[]; display: string } {
+  if (!Array.isArray(postExtractCmd) || postExtractCmd.some((part) => typeof part !== 'string')) {
+    throw new Error(
+      `"postExtractCmd" must be an array of strings, for example ${POST_EXTRACT_CMD_EXAMPLE}. ` +
+        `Shell strings like "node scripts/post-extract.js" are not supported.`,
+    );
+  }
+
+  const [command, ...baseArgs] = postExtractCmd;
+  if (!command) {
+    throw new Error('"postExtractCmd" must include the executable as the first array item');
+  }
+  const args = [...baseArgs, ...argv];
+  const display = [command, ...args]
+    .map((part) => (/\s/.test(part) ? JSON.stringify(part) : part))
+    .join(' ');
+  return { command, args, display };
+}
+
 /**
  * `extract` CLI action handler.
  * Parses argv, merges with config, calls actionExtract, prints summary.
@@ -48,16 +72,27 @@ export async function runExtract(
     },
   });
 
-  // Run postExtractScript if configured and not dry-run
+  const legacyPostExtractScript = (
+    config as (FiledistConfig & { postExtractScript?: unknown }) | null
+  )?.postExtractScript;
+  // eslint-disable-next-line no-undefined
+  if (legacyPostExtractScript !== undefined) {
+    throw new Error(
+      `"postExtractScript" was renamed to "postExtractCmd". Use "postExtractCmd": ${POST_EXTRACT_CMD_EXAMPLE}.`,
+    );
+  }
+
+  // Run postExtractCmd if configured and not dry-run
   const isDryRun = entries.some((e) => e.output?.dryRun);
-  if (!isDryRun && config?.postExtractScript) {
-    const scriptCmd = `${config.postExtractScript} ${argv.join(' ')}`.trim();
+  // eslint-disable-next-line no-undefined
+  if (!isDryRun && config?.postExtractCmd !== undefined) {
+    const command = resolvePostExtractCmd(config.postExtractCmd, argv);
     if (parsed.verbose) {
-      console.log(`[verbose] Running post-extract script: ${scriptCmd}`);
+      console.log(`[verbose] Running post-extract command: ${command.display}`);
     }
-    spawnWithLog(scriptCmd, [], cwd, parsed.verbose, true);
+    spawnWithLog(command.command, command.args, cwd, parsed.verbose, true);
     if (parsed.verbose) {
-      console.log(`[verbose] Post-extract script completed successfully.`);
+      console.log(`[verbose] Post-extract command completed successfully.`);
     }
   }
 

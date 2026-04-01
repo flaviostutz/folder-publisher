@@ -372,15 +372,16 @@ export function spawnWithLog(
   verbose: boolean | undefined,
   failOnError: boolean,
 ): ReturnType<typeof spawnSync> {
-  const scriptCmd = `${command} ${args.join(' ')}`;
+  const scriptCmd = [command, ...args]
+    .map((part) => (/\s/.test(part) ? JSON.stringify(part) : part))
+    .join(' ');
   if (verbose) {
     console.log(
       `[verbose] Running command: ${scriptCmd} in ${formatDisplayPath(workDir, workDir)}`,
     );
   }
-  const result = spawnSync(scriptCmd, undefined, {
+  const result = spawnSync(command, args, {
     cwd: workDir,
-    shell: true,
     stdio: 'pipe',
     encoding: 'utf8',
   });

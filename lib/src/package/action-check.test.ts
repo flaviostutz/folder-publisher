@@ -304,6 +304,74 @@ describe('actionCheck', () => {
     expect(result.extra).toHaveLength(0);
   }, 60000);
 
+  it('reports retargeted managed symlinks as conflicts', async () => {
+    await installMockPackage(
+      'check-symlink-drift-pkg',
+      '1.0.0',
+      { 'data/users-dataset/user1.json': '{"id":1}' },
+      tmpDir,
+    );
+
+    const outputDir = path.join(tmpDir, 'out-symlink-drift');
+    fs.mkdirSync(path.join(outputDir, 'data', 'users-dataset'), { recursive: true });
+    fs.writeFileSync(path.join(outputDir, 'data', 'users-dataset', 'user1.json'), '{"id":1}');
+    fs.mkdirSync(path.join(outputDir, 'docs'), { recursive: true });
+    fs.writeFileSync(path.join(outputDir, 'docs', 'README.md'), '# not the dataset');
+    fs.mkdirSync(path.join(outputDir, 'data-symlink'), { recursive: true });
+    fs.symlinkSync(
+      path.relative(
+        path.join(outputDir, 'data-symlink'),
+        path.join(outputDir, 'data', 'users-dataset'),
+      ),
+      path.join(outputDir, 'data-symlink', 'users-dataset'),
+    );
+    fs.symlinkSync(
+      path.relative(
+        path.join(outputDir, 'data-symlink'),
+        path.join(outputDir, 'docs', 'README.md'),
+      ),
+      path.join(outputDir, 'data-symlink', 'user1.json'),
+    );
+
+    await writeMarker(markerPath(outputDir), [
+      {
+        path: 'data/users-dataset/user1.json',
+        packageName: 'check-symlink-drift-pkg',
+        packageVersion: '1.0.0',
+      },
+      {
+        path: 'data-symlink/users-dataset',
+        packageName: 'check-symlink-drift-pkg',
+        packageVersion: '1.0.0',
+        kind: 'symlink',
+      },
+      {
+        path: 'data-symlink/user1.json',
+        packageName: 'check-symlink-drift-pkg',
+        packageVersion: '1.0.0',
+        kind: 'symlink',
+      },
+    ]);
+
+    const result = await actionCheck({
+      entries: [
+        {
+          package: 'check-symlink-drift-pkg@1.0.0',
+          selector: { files: ['data/**'] },
+          output: {
+            path: outputDir,
+            symlinks: [{ source: 'data/**', target: 'data-symlink' }],
+          },
+        },
+      ],
+      cwd: tmpDir,
+    });
+
+    expect(result.missing).toHaveLength(0);
+    expect(result.conflict).toContain('data-symlink/user1.json');
+    expect(result.extra).toHaveLength(0);
+  }, 60000);
+
   it('presets option filters which entries are checked', async () => {
     await installMockPackage('presets-docs-pkg', '1.0.0', { 'docs/guide.md': '# Guide' }, tmpDir);
     await installMockPackage('presets-data-pkg', '1.0.0', { 'data/sample.csv': 'a,b' }, tmpDir);

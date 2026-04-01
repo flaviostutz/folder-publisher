@@ -114,6 +114,8 @@ Or write a standalone `.filedistrc` (JSON object at the top level):
 }
 ```
 
+For a local Windows path, use the same `file://` form with a drive letter, for example `git:file:///C:/work/local-repo@v2.0.0`.
+
 Then run any command without `--packages`:
 
 ```sh
@@ -269,7 +271,7 @@ Each entry in the `filedist.sets` array in `package.json` supports the following
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `package` | `string` | required | Source spec to install and extract. Either npm (`my-pkg`, `npm:my-pkg@^1.2.3`) or git (`git:github.com/org/repo.git@ref`, `git:file:///tmp/repo@main`). |
+| `package` | `string` | required | Source spec to install and extract. Either npm (`my-pkg`, `npm:my-pkg@^1.2.3`) or git (`git:github.com/org/repo.git@ref`, `git:file:///tmp/repo@main`, `git:file:///C:/tmp/repo@main`). |
 | `output.path` | `string` | `.` (cwd) | Directory where files will be extracted, relative to where the consumer runs the command. |
 | `selector.files` | `string[]` | all files | Glob patterns to filter which files are extracted (e.g. `["data/**", "*.json"]`). |
 | `selector.exclude` | `string[]` | `["package.json","bin/**","README.md","node_modules/**"]` (when `files` is unset), none otherwise | Glob patterns to exclude files even when they match `selector.files` (e.g. `["test/**", "**/*.test.*"]`). |
@@ -291,6 +293,7 @@ Top-level config fields:
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `defaultPresets` | `string[]` | none | CLI-only fallback for config-file mode. `extract`, `check`, and `purge` behave as if `--presets <tags>` had been passed when the flag is omitted. |
+| `postExtractCmd` | `string[]` | none | Command argv run after a successful non-dry-run `extract`. The first array item is the executable and the remaining items are its arguments. Full extract argv is appended. |
 
 #### SymlinkConfig
 
@@ -595,6 +598,11 @@ type ProgressEvent =
   | { type: 'file-skipped';  packageName: string; file: string };
 ```
 
+### `postExtractCmd`
+
+Set `postExtractCmd` at the top level of your config to run a command after a successful non-dry-run `extract`.
+Use an argv array such as `["node", "scripts/post-extract.js"]`; shell strings are rejected so common quoting mistakes fail clearly.
+
 See the root [README.md](../README.md) for the full documentation.
 
 ## Managed file tracking
@@ -637,3 +645,5 @@ Each output directory that contains managed files gets a `.filedist` CSV file. C
 ```
 make build lint-fix test
 ```
+
+This maintainer workflow uses `make` and a bash-compatible shell. On Windows, use WSL or run the equivalent `pnpm` commands inside `lib/` directly.

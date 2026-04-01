@@ -31,6 +31,7 @@ describe('printUsage', () => {
     expect(lines.join('\n')).toMatch(/--nosync/);
     expect(lines.join('\n')).toMatch(/git:github\.com/);
     expect(lines.join('\n')).toMatch(/defaultpresets/i);
+    expect(lines.join('\n')).toMatch(/postextractcmd/i);
     expect(lines.join('\n')).not.toMatch(/--source/);
   });
 

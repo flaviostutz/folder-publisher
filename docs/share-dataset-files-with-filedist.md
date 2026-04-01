@@ -131,6 +131,8 @@ You can also point to local repositories with `git:file://` URLs during developm
 }
 ```
 
+On Windows, use the same format with a drive letter, for example `git:file:///C:/work/acme-users-dataset@v1.0.0`.
+
 ## 5. Extract, check, and purge from the consumer
 
 Once the consumer has a `.filedistrc`, the workflow is simple:

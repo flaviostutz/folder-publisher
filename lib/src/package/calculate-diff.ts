@@ -8,6 +8,7 @@ import { hashFile, hashBuffer, formatDisplayPath } from '../utils';
 import { readOutputDirMarker } from '../fileset/markers';
 
 import { applyContentReplacementsToBuffer } from './content-replacements';
+import { collectManagedSymlinkTargets } from './symlinks';
 
 /**
  * Calculate the diff between the desired file list (from resolveFiles) and the
@@ -76,7 +77,11 @@ async function appendOutputDirDiff(
   const managedByPath = new Map<string, ManagedFileMetadata>(
     existingMarker.map((m) => [m.path, m]),
   );
-  const desiredByPath = new Map<string, ResolvedFile>(desiredFiles.map((f) => [f.relPath, f]));
+  const desiredSymlinks = collectManagedSymlinkTargets(outputDir, desiredFiles);
+  const desiredPaths = new Set<string>([
+    ...desiredFiles.map((file) => file.relPath),
+    ...desiredSymlinks.map((entry) => entry.path),
+  ]);
   const gitignorePaths = readManagedGitignoreEntries(outputDir);
   const outputRelevantPackages =
     relevantPackages ?? new Set(desiredFiles.map((f) => f.packageName));
@@ -85,10 +90,14 @@ async function appendOutputDirDiff(
     await classifyDesiredFile(desired, outputDir, managedByPath, gitignorePaths, result);
   }
 
+  for (const desiredSymlink of desiredSymlinks) {
+    classifyDesiredSymlink(desiredSymlink, outputDir, managedByPath, result);
+  }
+
   for (const markerEntry of existingMarker) {
     if (
       outputRelevantPackages.has(markerEntry.packageName) &&
-      !desiredByPath.has(markerEntry.path)
+      !desiredPaths.has(markerEntry.path)
     ) {
       result.extra.push({
         status: 'extra',
@@ -97,6 +106,55 @@ async function appendOutputDirDiff(
         existing: markerEntry,
       });
     }
+  }
+}
+
+function classifyDesiredSymlink(
+  desiredSymlink: ReturnType<typeof collectManagedSymlinkTargets>[number],
+  outputDir: string,
+  managedByPath: Map<string, ManagedFileMetadata>,
+  result: DiffResult,
+): void {
+  const linkPath = path.join(outputDir, desiredSymlink.path);
+  const existingEntry = managedByPath.get(desiredSymlink.path);
+
+  let stat: fs.Stats | undefined;
+  try {
+    stat = fs.lstatSync(linkPath);
+  } catch {
+    result.missing.push({ status: 'missing', relPath: desiredSymlink.path, outputDir });
+    return;
+  }
+
+  const conflictReasons: Array<'content' | 'managed' | 'gitignore'> = [];
+  if (!stat.isSymbolicLink()) {
+    conflictReasons.push('content');
+  } else {
+    const actualTarget = path.resolve(path.dirname(linkPath), fs.readlinkSync(linkPath));
+    if (actualTarget !== desiredSymlink.targetPath) {
+      conflictReasons.push('content');
+    }
+  }
+
+  if (!existingEntry || (existingEntry.kind ?? 'file') !== 'symlink') {
+    conflictReasons.push('managed');
+  }
+
+  if (conflictReasons.length === 0) {
+    result.ok.push({
+      status: 'ok',
+      relPath: desiredSymlink.path,
+      outputDir,
+      existing: existingEntry,
+    });
+  } else {
+    result.conflict.push({
+      status: 'conflict',
+      relPath: desiredSymlink.path,
+      outputDir,
+      existing: existingEntry,
+      conflictReasons,
+    });
   }
 }
 

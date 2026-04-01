@@ -7,6 +7,7 @@ import { readMarker, writeMarker } from '../fileset/markers';
 import { MARKER_FILE } from '../fileset/constants';
 import { ProgressEvent } from '../types';
 
+import { actionCheck } from './action-check';
 import { actionExtract } from './action-extract';
 
 describe('actionExtract', () => {
@@ -665,31 +666,73 @@ describe('actionExtract', () => {
     expect(fs.readFileSync(path.join(outputDir, 'doc.md'), 'utf8')).toBe('# v2 changed content');
   }, 90000);
 
-  it('creates symlinks when symlinks config is provided', async () => {
-    await installMockPackage('symlink-pkg', '1.0.0', { 'docs/guide.md': '# Guide' }, tmpDir);
+  it('extracts an example-style package and verifies exported files and symlinks', async () => {
+    await installMockPackage(
+      'example-files-package',
+      '1.0.0',
+      {
+        'docs/guide.md': '# Guide',
+        'data/users-dataset/user1.json': '{"id":1}',
+        'data/users-dataset/user2.json': '{"id":2}',
+      },
+      tmpDir,
+    );
+
     const outputDir = path.join(tmpDir, 'output');
-    const linkTarget = path.join(tmpDir, 'links');
-    fs.mkdirSync(linkTarget, { recursive: true });
 
     await actionExtract({
       entries: [
         {
-          package: 'symlink-pkg',
+          package: 'example-files-package',
+          selector: { files: ['docs/**', 'data/**'] },
           output: {
             path: outputDir,
             gitignore: false,
-            symlinks: [{ source: 'docs/guide.md', target: path.relative(outputDir, linkTarget) }],
+            symlinks: [{ source: 'data/**', target: 'data-symlink' }],
           },
         },
       ],
-
       cwd: tmpDir,
     });
 
-    expect(fs.existsSync(path.join(outputDir, 'docs/guide.md'))).toBe(true);
-    // symlink should be created in linkTarget
-    const linkPath = path.join(linkTarget, 'guide.md');
-    expect(fs.existsSync(linkPath) || fs.lstatSync(linkPath).isSymbolicLink()).toBe(true);
+    const exportedGuide = path.join(outputDir, 'docs', 'guide.md');
+    const exportedUser1 = path.join(outputDir, 'data', 'users-dataset', 'user1.json');
+    const exportedUser2 = path.join(outputDir, 'data', 'users-dataset', 'user2.json');
+    const dataSymlinkDir = path.join(outputDir, 'data-symlink');
+    const datasetLink = path.join(dataSymlinkDir, 'users-dataset');
+    const user1Link = path.join(dataSymlinkDir, 'user1.json');
+    const user2Link = path.join(dataSymlinkDir, 'user2.json');
+
+    expect(fs.readFileSync(exportedGuide, 'utf8')).toBe('# Guide');
+    expect(fs.readFileSync(exportedUser1, 'utf8')).toBe('{"id":1}');
+    expect(fs.readFileSync(exportedUser2, 'utf8')).toBe('{"id":2}');
+
+    expect(fs.lstatSync(datasetLink).isSymbolicLink()).toBe(true);
+    expect(fs.lstatSync(user1Link).isSymbolicLink()).toBe(true);
+    expect(fs.lstatSync(user2Link).isSymbolicLink()).toBe(true);
+    expect(path.resolve(dataSymlinkDir, fs.readlinkSync(datasetLink))).toBe(
+      path.join(outputDir, 'data', 'users-dataset'),
+    );
+    expect(path.resolve(dataSymlinkDir, fs.readlinkSync(user1Link))).toBe(exportedUser1);
+    expect(path.resolve(dataSymlinkDir, fs.readlinkSync(user2Link))).toBe(exportedUser2);
+
+    const checkResult = await actionCheck({
+      entries: [
+        {
+          package: 'example-files-package@1.0.0',
+          selector: { files: ['docs/**', 'data/**'] },
+          output: {
+            path: outputDir,
+            symlinks: [{ source: 'data/**', target: 'data-symlink' }],
+          },
+        },
+      ],
+      cwd: tmpDir,
+    });
+
+    expect(checkResult.missing).toHaveLength(0);
+    expect(checkResult.conflict).toHaveLength(0);
+    expect(checkResult.extra).toHaveLength(0);
   }, 90000);
 
   it('throws when entry is missing package field', async () => {

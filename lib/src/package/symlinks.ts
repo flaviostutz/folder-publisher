@@ -6,6 +6,10 @@ import { minimatch } from 'minimatch';
 import { ManagedFileMetadata, ResolvedFile, SymlinkConfig } from '../types';
 import { ensureDir } from '../utils';
 
+export type ManagedSymlinkTarget = ManagedFileMetadata & {
+  targetPath: string;
+};
+
 /**
  * Create symlinks for all files/dirs in outputDir matching source globs.
  * Each matching source is symlinked into the target directory.
@@ -55,6 +59,18 @@ export function collectManagedSymlinkEntries(
   outputDir: string,
   files: ResolvedFile[],
 ): ManagedFileMetadata[] {
+  return collectManagedSymlinkTargets(outputDir, files).map((entry) => ({
+    path: entry.path,
+    packageName: entry.packageName,
+    packageVersion: entry.packageVersion,
+    kind: entry.kind,
+  }));
+}
+
+export function collectManagedSymlinkTargets(
+  outputDir: string,
+  files: ResolvedFile[],
+): ManagedSymlinkTarget[] {
   const uniqueConfigs = new Map<
     string,
     { packageName: string; packageVersion: string; config: SymlinkConfig }
@@ -74,11 +90,12 @@ export function collectManagedSymlinkEntries(
     }
   }
 
-  const byPath = new Map<string, ManagedFileMetadata>();
+  const byPath = new Map<string, ManagedSymlinkTarget>();
   for (const { packageName, packageVersion, config } of uniqueConfigs.values()) {
     const targetDir = path.resolve(outputDir, config.target);
     const matches = findMatchingPaths(outputDir, config.source);
     for (const relPath of matches) {
+      const sourcePath = path.join(outputDir, relPath);
       const linkPath = path.join(targetDir, path.basename(relPath));
       const linkRelPath = path.relative(outputDir, linkPath);
       if (!byPath.has(linkRelPath)) {
@@ -87,6 +104,7 @@ export function collectManagedSymlinkEntries(
           packageName,
           packageVersion,
           kind: 'symlink',
+          targetPath: sourcePath,
         });
       }
     }

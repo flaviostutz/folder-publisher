@@ -65,17 +65,17 @@ export async function cli(argv: string[], cwd?: string, configSearchCwd?: string
   // Load config from cwd, unless --packages is specified (CLI-only mode)
   const packagesSpecified = args.includes('--packages');
 
-  let config: Awaited<ReturnType<typeof searchAndLoadFiledistConfig>>;
-  if (configFilePath) {
-    config = await loadFiledistConfigFile(path.resolve(effectiveCwd, configFilePath));
-  } else if (packagesSpecified) {
-    // eslint-disable-next-line unicorn/no-null
-    config = null;
-  } else {
-    config = await searchAndLoadFiledistConfig(effectiveConfigSearchCwd);
-  }
-
   try {
+    let config: Awaited<ReturnType<typeof searchAndLoadFiledistConfig>>;
+    if (configFilePath) {
+      config = await loadFiledistConfigFile(path.resolve(effectiveCwd, configFilePath));
+    } else if (packagesSpecified) {
+      // eslint-disable-next-line unicorn/no-null
+      config = null;
+    } else {
+      config = await searchAndLoadFiledistConfig(effectiveConfigSearchCwd);
+    }
+
     await dispatch(action, config, cmdArgs, effectiveCwd);
     return 0;
   } catch (error) {

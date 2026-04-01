@@ -29,6 +29,7 @@ Each entry in the `sets` array supports the same fields as a data-package `"file
   "name": "my-project",
   "filedist": {
     "defaultPresets": ["basic"],
+    "postExtractCmd": ["node", "myPostExtract.js"],
     "sets": [
       {
         "package": "example-files-package",
@@ -45,6 +46,7 @@ Each entry in the `sets` array supports the same fields as a data-package `"file
 ```json
 {
   "defaultPresets": ["basic"],
+  "postExtractCmd": ["node", "myPostExtract.js"],
   "sets": [
     {
       "package": "example-files-package",
@@ -73,6 +75,9 @@ pnpm exec filedist purge
 # lists all preset tags defined in the configuration
 pnpm exec filedist presets
 ```
+
+This example also configures `postExtractCmd` so every successful non-dry-run extract runs
+`node myPostExtract.js` and writes `output/lastUpdated`.
 
 ## Presets
 
@@ -124,6 +129,8 @@ entirely for that command.
 
 ## Running the integration test
 
+This `make` target is a maintainer integration workflow and requires a bash-compatible environment such as macOS, Linux, or WSL/Git Bash on Windows.
+
 ```bash
 make test
 ```
@@ -138,6 +145,7 @@ Each entry supports the same fields as a data-package `"filedist.sets"` array en
 | Field | Type | Description |
 |---|---|---|
 | `defaultPresets` | `string[]` | Root-level preset fallback used by `extract`, `check`, and `purge` when `--presets` is omitted |
+| `postExtractCmd` | `string[]` | Root-level command argv run after a successful non-dry-run `extract` |
 | `package` | `string` | Package name/spec to extract from (e.g. `"my-pkg"` or `"my-pkg@^1.0.0"`) |
 | `output.path` | `string` | Directory to extract files into (relative to cwd) |
 | `selector.files` | `string[]` | Glob patterns to filter which files are extracted |

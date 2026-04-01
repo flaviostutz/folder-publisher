@@ -389,4 +389,49 @@ describe('cli', () => {
     expect(fs.existsSync(path.join(defaultOutput, 'docs/guide.md'))).toBe(true);
     expect(fs.existsSync(path.join(allOutput, 'docs/api.md'))).toBe(true);
   }, 60_000);
+
+  it('returns a clear error when config still uses legacy postExtractScript', async () => {
+    const configFile = path.join(tmpDir, 'legacy-post-extract.json');
+    fs.writeFileSync(
+      configFile,
+      JSON.stringify({
+        postExtractScript: ['node', 'scripts/post-extract.js'],
+        sets: [{ package: PKG_NAME, output: { path: './output', gitignore: false } }],
+      }),
+    );
+
+    const errors: string[] = [];
+    const spy = jest.spyOn(console, 'error').mockImplementation((...args) => {
+      errors.push(args.join(' '));
+    });
+    const code = await cli(['node', 'filedist', 'extract', '--config', configFile], tmpDir);
+    spy.mockRestore();
+
+    expect(code).toBe(1);
+    expect(errors.join('\n')).toContain('"postExtractScript" was renamed to "postExtractCmd"');
+  });
+
+  it('returns a clear error when postExtractCmd is configured as a shell string', async () => {
+    const configFile = path.join(tmpDir, 'invalid-post-extract.json');
+    fs.writeFileSync(
+      configFile,
+      JSON.stringify({
+        postExtractCmd: 'node scripts/post-extract.js',
+        sets: [{ package: PKG_NAME, output: { path: './output', gitignore: false } }],
+      }),
+    );
+
+    const errors: string[] = [];
+    const spy = jest.spyOn(console, 'error').mockImplementation((...args) => {
+      errors.push(args.join(' '));
+    });
+    const code = await cli(['node', 'filedist', 'extract', '--config', configFile], tmpDir);
+    spy.mockRestore();
+
+    expect(code).toBe(1);
+    expect(errors.join('\n')).toContain('"postExtractCmd" must be an array of strings');
+    expect(errors.join('\n')).toContain(
+      'Shell strings like "node scripts/post-extract.js" are not supported.',
+    );
+  });
 });

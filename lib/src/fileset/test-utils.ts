@@ -1,8 +1,21 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { execSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 
 import archiver from 'archiver';
+
+function runCommand(command: string, args: string[], cwd: string): string {
+  const result = spawnSync(command, args, {
+    cwd,
+    stdio: 'pipe',
+    encoding: 'utf8',
+  });
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    throw new Error(result.stderr || `Command "${command}" failed with exit code ${result.status}`);
+  }
+  return result.stdout;
+}
 
 /**
  * Creates a mock npm package with the given files, packages it as a tar.gz,
@@ -60,10 +73,7 @@ export const installMockPackage = async (
   }
 
   // Install the tar.gz package into tmpDir/node_modules
-  execSync(`pnpm add ${tarGzPath}`, {
-    cwd: tmpDir,
-    stdio: 'pipe',
-  });
+  runCommand('pnpm', ['add', tarGzPath], tmpDir);
 
   // Return the installed package path in node_modules
   return path.join(tmpDir, 'node_modules', name);
@@ -97,16 +107,16 @@ export const createMockGitRepo = async (
     );
   }
 
-  execSync('git init', { cwd: repoDir, stdio: 'pipe' });
-  execSync('git config user.email "filedist-tests@example.com"', { cwd: repoDir, stdio: 'pipe' });
-  execSync('git config user.name "filedist tests"', { cwd: repoDir, stdio: 'pipe' });
-  execSync('git add .', { cwd: repoDir, stdio: 'pipe' });
-  execSync('git commit -m "initial"', { cwd: repoDir, stdio: 'pipe' });
+  runCommand('git', ['init'], repoDir);
+  runCommand('git', ['config', 'user.email', 'filedist-tests@example.com'], repoDir);
+  runCommand('git', ['config', 'user.name', 'filedist tests'], repoDir);
+  runCommand('git', ['add', '.'], repoDir);
+  runCommand('git', ['commit', '-m', 'initial'], repoDir);
   if (options?.tag) {
-    execSync(`git tag ${options.tag}`, { cwd: repoDir, stdio: 'pipe' });
+    runCommand('git', ['tag', options.tag], repoDir);
   }
 
-  const head = execSync('git rev-parse HEAD', { cwd: repoDir, stdio: 'pipe' }).toString().trim();
+  const head = runCommand('git', ['rev-parse', 'HEAD'], repoDir).trim();
 
   return {
     repoDir,

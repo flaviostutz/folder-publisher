@@ -11,7 +11,10 @@
     "defaultPresets": [
       "basic"
     ],
-    "postExtractScript": "node myPostExtract.js",
+    "postExtractCmd": [
+      "node",
+      "myPostExtract.js"
+    ],
     "sets": [
       {
         "package": "example-files-package",

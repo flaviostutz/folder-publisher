@@ -30,6 +30,8 @@ pnpm exec filedist list
 
 ## Running the example
 
+These `make` targets are maintainer integration workflows and require a bash-compatible environment such as macOS, Linux, or WSL/Git Bash on Windows.
+
 ```sh
 # install the package and extract the shared files
 make build

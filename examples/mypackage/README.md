@@ -37,6 +37,8 @@ npm publish
 
 The `Makefile` automates the full publisher + consumer cycle against the local `filedist` build:
 
+These `make` targets are maintainer integration workflows and require a bash-compatible environment such as macOS, Linux, or WSL/Git Bash on Windows.
+
 ```sh
 # build this package into a local tarball and run the consumer integration test
 make test

@@ -77,13 +77,17 @@ export async function actionExtract(options: ExtractOptions): Promise<ExtractRes
       );
     }
 
+    const fileMissingEntries = diff.missing.filter((entry) => entry.desired);
+    const fileOkEntries = diff.ok.filter((entry) => entry.desired);
+    const fileConflictEntries = diff.conflict.filter((entry) => entry.desired);
+
     // ── Pre-flight conflict check ──────────────────────────────────────────
     // Detect unmanaged-file conflicts before any disk writes.
     if (!isDryRun) {
       if (verbose) {
         console.log(`[verbose] actionExtract: checking for possible file conflicts...`);
       }
-      for (const entry of diff.conflict) {
+      for (const entry of fileConflictEntries) {
         const desired = entry.desired!;
         const isUnmanagedConflict = !entry.existing && desired.managed;
         if (!desired.ignoreIfExisting && !desired.force && isUnmanagedConflict) {
@@ -96,11 +100,11 @@ export async function actionExtract(options: ExtractOptions): Promise<ExtractRes
     }
 
     // ── Count expected changes ─────────────────────────────────────────────
-    result.added = diff.missing.length;
+    result.added = fileMissingEntries.length;
     result.deleted = diff.extra.filter(
       (entry) => isManagedFileEntry(entry.existing!) && !noSyncOutputDirs.has(entry.outputDir),
     ).length;
-    for (const entry of diff.conflict) {
+    for (const entry of fileConflictEntries) {
       const desired = entry.desired!;
       if (desired.ignoreIfExisting || !desired.managed) {
         result.skipped++;
@@ -108,7 +112,7 @@ export async function actionExtract(options: ExtractOptions): Promise<ExtractRes
         result.modified++;
       }
     }
-    result.skipped += diff.ok.length;
+    result.skipped += fileOkEntries.length;
 
     if (isDryRun) return result;
 
@@ -148,7 +152,7 @@ export async function actionExtract(options: ExtractOptions): Promise<ExtractRes
     if (verbose) {
       console.log(`[verbose] actionExtract: adding missing files...`);
     }
-    for (const entry of diff.missing) {
+    for (const entry of fileMissingEntries) {
       const desired = entry.desired!;
       writeFileToOutput(
         desired.sourcePath,
@@ -165,7 +169,7 @@ export async function actionExtract(options: ExtractOptions): Promise<ExtractRes
     }
 
     // Emit file-skipped for unchanged files (diff.ok)
-    for (const entry of diff.ok) {
+    for (const entry of fileOkEntries) {
       const desired = entry.desired!;
       onProgress?.({
         type: 'file-skipped',
@@ -180,7 +184,7 @@ export async function actionExtract(options: ExtractOptions): Promise<ExtractRes
     if (verbose) {
       console.log(`[verbose] actionExtract: resolving file conflicts...`);
     }
-    for (const entry of diff.conflict) {
+    for (const entry of fileConflictEntries) {
       const desired = entry.desired!;
       // managed=false: existing file is user-owned, leave it untouched
       if (desired.ignoreIfExisting || !desired.managed) {
@@ -314,7 +318,13 @@ async function updateOutputDirMetadata(
         kind: 'file' as const,
       })),
     ...diff.conflict
-      .filter((e) => e.outputDir === outputDir && e.desired?.managed && !e.desired.ignoreIfExisting)
+      .filter(
+        (e) =>
+          e.outputDir === outputDir &&
+          !!e.desired &&
+          e.desired.managed &&
+          !e.desired.ignoreIfExisting,
+      )
       .map((e) => ({
         path: e.relPath,
         packageName: e.desired!.packageName,

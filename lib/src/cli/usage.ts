@@ -15,6 +15,7 @@ export function printUsage(command?: string): void {
 Usage: filedist [extract] [options]
 
 Extract files from one or more npm packages into a local output directory.
+In config-file mode, the root-level postExtractCmd runs after a successful non-dry-run extract.
 
 Options:
   --packages <specs>      Comma-separated package specs (e.g. my-pkg@^1.2.3, git:github.com/org/repo.git@main). Overrides config sets.

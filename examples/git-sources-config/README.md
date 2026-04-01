@@ -18,6 +18,8 @@ CLI auto-discovers:
 
 ## Running the integration test
 
+This `make` target is a maintainer integration workflow and requires a bash-compatible environment such as macOS, Linux, or WSL/Git Bash on Windows.
+
 ```bash
 make test
 ```

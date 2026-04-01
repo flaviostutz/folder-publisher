@@ -507,35 +507,33 @@ describe('installPackage', () => {
     });
 
     it('makes three spawnSync calls: self-install first, then add and upgrade the target package', async () => {
-      const calls: { command: string }[] = [];
-      const spy = jest.spyOn(childProcess, 'spawnSync').mockImplementation((cmd) => {
-        calls.push({ command: cmd as string });
+      const calls: { command: string; args: string[] }[] = [];
+      const spy = jest.spyOn(childProcess, 'spawnSync').mockImplementation((cmd, args) => {
+        calls.push({ command: cmd as string, args: (args ?? []) as string[] });
         return { pid: 0, output: [], stdout: '', stderr: '', status: 0, signal: null };
       });
       try {
         await expect(installOrUpgradePackage('some-pkg', '1.0.0', true, tmpDir)).rejects.toThrow();
         expect(calls).toHaveLength(3);
-        // First call: self-install (should not contain the target package name in command)
-        expect(calls[0].command).not.toContain('some-pkg');
+        expect(calls[0].args.join(' ')).not.toContain('some-pkg');
         // Second call: add of the target package
-        expect(calls[1].command).toContain('some-pkg');
+        expect(calls[1].args.join(' ')).toContain('some-pkg');
         // Third call: upgrade of the target package
-        expect(calls[2].command).toContain('some-pkg');
+        expect(calls[2].args.join(' ')).toContain('some-pkg');
       } finally {
         spy.mockRestore();
       }
     });
 
     it('self-install uses add (not upgrade) command', async () => {
-      const calls: { command: string }[] = [];
-      const spy = jest.spyOn(childProcess, 'spawnSync').mockImplementation((cmd) => {
-        calls.push({ command: cmd as string });
+      const calls: { command: string; args: string[] }[] = [];
+      const spy = jest.spyOn(childProcess, 'spawnSync').mockImplementation((cmd, args) => {
+        calls.push({ command: cmd as string, args: (args ?? []) as string[] });
         return { pid: 0, output: [], stdout: '', stderr: '', status: 0, signal: null };
       });
       try {
         await expect(installOrUpgradePackage('some-pkg', '1.0.0', true, tmpDir)).rejects.toThrow();
-        // npm 'add' resolves to 'npm i' (install alias); upgrade resolves to 'npm update'
-        expect(calls[0].command).not.toMatch(/update/i);
+        expect(calls[0].args.join(' ')).not.toMatch(/update/i);
       } finally {
         spy.mockRestore();
       }
@@ -546,16 +544,16 @@ describe('installPackage', () => {
         path.join(tmpDir, 'package.json'),
         JSON.stringify({ name: 'existing', version: '1.0.0', private: true }),
       );
-      const calls: { command: string }[] = [];
-      const spy = jest.spyOn(childProcess, 'spawnSync').mockImplementation((cmd) => {
-        calls.push({ command: cmd as string });
+      const calls: { command: string; args: string[] }[] = [];
+      const spy = jest.spyOn(childProcess, 'spawnSync').mockImplementation((cmd, args) => {
+        calls.push({ command: cmd as string, args: (args ?? []) as string[] });
         return { pid: 0, output: [], stdout: '', stderr: '', status: 0, signal: null };
       });
       try {
         await expect(installOrUpgradePackage('some-pkg', '1.0.0', true, tmpDir)).rejects.toThrow();
         expect(calls).toHaveLength(2);
-        expect(calls[0].command).toContain('some-pkg');
-        expect(calls[1].command).toContain('some-pkg');
+        expect(calls[0].args.join(' ')).toContain('some-pkg');
+        expect(calls[1].args.join(' ')).toContain('some-pkg');
       } finally {
         spy.mockRestore();
       }
@@ -597,16 +595,16 @@ describe('installPackage', () => {
         path.join(tmpDir, 'package.json'),
         JSON.stringify({ name: 'existing', version: '1.0.0', private: true }),
       );
-      const calls: { command: string }[] = [];
-      const spy = jest.spyOn(childProcess, 'spawnSync').mockImplementation((cmd) => {
-        calls.push({ command: cmd as string });
+      const calls: { command: string; args: string[] }[] = [];
+      const spy = jest.spyOn(childProcess, 'spawnSync').mockImplementation((cmd, args) => {
+        calls.push({ command: cmd as string, args: (args ?? []) as string[] });
         return { pid: 0, output: [], stdout: '', stderr: '', status: 0, signal: null };
       });
       try {
         await expect(installOrUpgradePackage('some-pkg', '1.0.0', true, tmpDir)).rejects.toThrow();
         // The add call should carry -D; the upgrade call should not
-        expect(calls[0].command).toContain('-D');
-        expect(calls[1].command).not.toContain('-D');
+        expect(calls[0].args).toContain('-D');
+        expect(calls[1].args).not.toContain('-D');
       } finally {
         spy.mockRestore();
         jest.mocked(detect).mockReset();
@@ -619,15 +617,15 @@ describe('installPackage', () => {
         path.join(tmpDir, 'package.json'),
         JSON.stringify({ name: 'existing', version: '1.0.0', private: true }),
       );
-      const calls: { command: string }[] = [];
-      const spy = jest.spyOn(childProcess, 'spawnSync').mockImplementation((cmd) => {
-        calls.push({ command: cmd as string });
+      const calls: { command: string; args: string[] }[] = [];
+      const spy = jest.spyOn(childProcess, 'spawnSync').mockImplementation((cmd, args) => {
+        calls.push({ command: cmd as string, args: (args ?? []) as string[] });
         return { pid: 0, output: [], stdout: '', stderr: '', status: 0, signal: null };
       });
       try {
         await expect(installOrUpgradePackage('some-pkg', '1.0.0', true, tmpDir)).rejects.toThrow();
-        expect(calls[0].command).toContain('-d');
-        expect(calls[0].command).not.toContain('-D');
+        expect(calls[0].args).toContain('-d');
+        expect(calls[0].args).not.toContain('-D');
       } finally {
         spy.mockRestore();
         jest.mocked(detect).mockReset();
@@ -643,14 +641,14 @@ describe('installPackage', () => {
         JSON.stringify({ name: 'existing', version: '1.0.0', private: true }),
       );
       fs.writeFileSync(path.join(tmpDir, 'pnpm-workspace.yaml'), 'packages:\n  - .\n');
-      const calls: { command: string }[] = [];
-      const spy = jest.spyOn(childProcess, 'spawnSync').mockImplementation((cmd) => {
-        calls.push({ command: cmd as string });
+      const calls: { command: string; args: string[] }[] = [];
+      const spy = jest.spyOn(childProcess, 'spawnSync').mockImplementation((cmd, args) => {
+        calls.push({ command: cmd as string, args: (args ?? []) as string[] });
         return { pid: 0, output: [], stdout: '', stderr: '', status: 0, signal: null };
       });
       try {
         await expect(installOrUpgradePackage('some-pkg', '1.0.0', true, tmpDir)).rejects.toThrow();
-        expect(calls[0].command).toContain('--workspace-root');
+        expect(calls[0].args).toContain('--workspace-root');
       } finally {
         spy.mockRestore();
         jest.mocked(detect).mockReset();
@@ -663,14 +661,14 @@ describe('installPackage', () => {
         path.join(tmpDir, 'package.json'),
         JSON.stringify({ name: 'existing', version: '1.0.0', private: true }),
       );
-      const calls: { command: string }[] = [];
-      const spy = jest.spyOn(childProcess, 'spawnSync').mockImplementation((cmd) => {
-        calls.push({ command: cmd as string });
+      const calls: { command: string; args: string[] }[] = [];
+      const spy = jest.spyOn(childProcess, 'spawnSync').mockImplementation((cmd, args) => {
+        calls.push({ command: cmd as string, args: (args ?? []) as string[] });
         return { pid: 0, output: [], stdout: '', stderr: '', status: 0, signal: null };
       });
       try {
         await expect(installOrUpgradePackage('some-pkg', '1.0.0', true, tmpDir)).rejects.toThrow();
-        expect(calls[0].command).not.toContain('--workspace-root');
+        expect(calls[0].args).not.toContain('--workspace-root');
       } finally {
         spy.mockRestore();
         jest.mocked(detect).mockReset();

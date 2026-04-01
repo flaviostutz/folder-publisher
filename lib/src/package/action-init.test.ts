@@ -5,22 +5,35 @@ import os from 'node:os';
 
 import { actionInit } from './action-init';
 
-// Mock execSync globally so no real package manager commands run during tests
+// Mock spawnSync globally so no real package manager commands run during tests
 jest.mock('node:child_process', () => ({
   ...jest.requireActual('node:child_process'),
-  execSync: jest.fn(),
+  spawnSync: jest.fn(() => ({
+    pid: 0,
+    output: [],
+    stdout: '',
+    stderr: '',
+    status: 0,
+  })),
 }));
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports, import/no-commonjs
-const { execSync: mockExecSync } = require('node:child_process') as {
-  execSync: jest.Mock;
+const { spawnSync: mockSpawnSync } = require('node:child_process') as {
+  spawnSync: jest.Mock;
 };
 
 let tmpDir: string;
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'filedist-action-init-'));
-  mockExecSync.mockClear();
+  mockSpawnSync.mockClear();
+  mockSpawnSync.mockReturnValue({
+    pid: 0,
+    output: [],
+    stdout: '',
+    stderr: '',
+    status: 0,
+  });
 });
 
 afterEach(() => {
@@ -131,18 +144,17 @@ describe('actionInit', () => {
     const outputDir = path.join(tmpDir, 'install-pkg');
     await actionInit(outputDir, false);
 
-    // execSync should have been called with an "add"/"install" command including "filedist"
-    expect(mockExecSync).toHaveBeenCalledTimes(1);
-    const cmd = mockExecSync.mock.calls[0][0] as string;
-    expect(cmd).toMatch(/filedist/);
+    expect(mockSpawnSync).toHaveBeenCalledTimes(1);
+    expect(mockSpawnSync.mock.calls[0][0]).toBeTruthy();
+    expect((mockSpawnSync.mock.calls[0][1] as string[]).join(' ')).toMatch(/filedist/);
   });
 
   it('includes external packages in the add command', async () => {
     const outputDir = path.join(tmpDir, 'ext-pkg');
     await actionInit(outputDir, false, { packages: ['eslint@8'] });
 
-    const cmd = mockExecSync.mock.calls[0][0] as string;
-    expect(cmd).toMatch(/filedist/);
-    expect(cmd).toMatch(/eslint@8/);
+    const args = mockSpawnSync.mock.calls[0][1] as string[];
+    expect(args.join(' ')).toMatch(/filedist/);
+    expect(args.join(' ')).toMatch(/eslint@8/);
   });
 });

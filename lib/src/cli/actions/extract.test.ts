@@ -372,43 +372,71 @@ describe('runExtract — onProgress handler', () => {
   });
 });
 
-describe('runExtract — postExtractScript', () => {
-  const configWithScript: FiledistConfig = {
+describe('runExtract — postExtractCmd', () => {
+  const configWithArrayCmd: FiledistConfig = {
     sets: [{ package: 'pkg@1.0.0', output: { path: '.' } }],
-    postExtractScript: 'echo done',
+    postExtractCmd: ['node', 'scripts/post-extract.js'],
   };
 
-  it('runs postExtractScript after successful non-dry-run extract', async () => {
-    await runExtract(configWithScript, [], '/cwd');
-    expect(mockSpawnSync).toHaveBeenCalledWith(
-      expect.stringContaining('echo done'),
-      // eslint-disable-next-line no-undefined
-      undefined,
-      {
-        cwd: '/cwd',
-        shell: true,
-        stdio: 'pipe',
-        encoding: 'utf8',
-      },
+  it('runs array postExtractCmd without shell', async () => {
+    await runExtract(configWithArrayCmd, ['--silent'], '/cwd');
+    expect(mockSpawnSync).toHaveBeenCalledWith('node', ['scripts/post-extract.js', '--silent'], {
+      cwd: '/cwd',
+      stdio: 'pipe',
+      encoding: 'utf8',
+    });
+  });
+
+  it('throws when postExtractCmd is a string instead of an argv array', async () => {
+    await expect(
+      runExtract(
+        {
+          sets: [{ package: 'pkg@1.0.0', output: { path: '.' } }],
+          postExtractCmd: 'node scripts/post-extract.js' as unknown as string[],
+        },
+        [],
+        '/cwd',
+      ),
+    ).rejects.toThrow(
+      '"postExtractCmd" must be an array of strings, for example ["node", "scripts/post-extract.js"]. ' +
+        'Shell strings like "node scripts/post-extract.js" are not supported.',
     );
   });
 
-  it('appends argv to the postExtractScript command', async () => {
-    await runExtract(configWithScript, ['--silent'], '/cwd');
-    expect(mockSpawnSync).toHaveBeenCalledWith(
-      expect.stringContaining('--silent'),
-      // eslint-disable-next-line no-undefined
-      undefined,
-      expect.any(Object),
+  it('throws when postExtractCmd array is empty', async () => {
+    await expect(
+      runExtract(
+        {
+          sets: [{ package: 'pkg@1.0.0', output: { path: '.' } }],
+          postExtractCmd: [],
+        },
+        [],
+        '/cwd',
+      ),
+    ).rejects.toThrow('"postExtractCmd" must include the executable as the first array item');
+  });
+
+  it('throws when legacy postExtractScript is still present', async () => {
+    await expect(
+      runExtract(
+        {
+          sets: [{ package: 'pkg@1.0.0', output: { path: '.' } }],
+          postExtractScript: ['node', 'scripts/post-extract.js'],
+        } as FiledistConfig & { postExtractScript: string[] },
+        [],
+        '/cwd',
+      ),
+    ).rejects.toThrow(
+      '"postExtractScript" was renamed to "postExtractCmd". Use "postExtractCmd": ["node", "scripts/post-extract.js"].',
     );
   });
 
-  it('does not run postExtractScript when --dry-run', async () => {
-    await runExtract(configWithScript, ['--dry-run'], '/cwd');
+  it('does not run postExtractCmd when --dry-run', async () => {
+    await runExtract(configWithArrayCmd, ['--dry-run'], '/cwd');
     expect(mockSpawnSync).not.toHaveBeenCalled();
   });
 
-  it('does not run postExtractScript when config has no script', async () => {
+  it('does not run postExtractCmd when config has no command', async () => {
     await runExtract(CONFIG_WITH_SETS, [], '/cwd');
     expect(mockSpawnSync).not.toHaveBeenCalled();
   });
@@ -423,7 +451,7 @@ describe('runExtract — postExtractScript', () => {
       signal: null,
       error: new Error('spawn ENOENT'),
     });
-    await expect(runExtract(configWithScript, [], '/cwd')).rejects.toThrow('spawn ENOENT');
+    await expect(runExtract(configWithArrayCmd, [], '/cwd')).rejects.toThrow('spawn ENOENT');
   });
 
   it('does not throw when spawnSync exits with non-zero status but no OS error', async () => {
@@ -437,7 +465,7 @@ describe('runExtract — postExtractScript', () => {
       // eslint-disable-next-line no-undefined
       error: undefined,
     });
-    await expect(runExtract(configWithScript, [], '/cwd')).resolves.toBeUndefined();
+    await expect(runExtract(configWithArrayCmd, [], '/cwd')).resolves.toBeUndefined();
   });
 
   it('does not print summary after script failure', async () => {
@@ -451,7 +479,7 @@ describe('runExtract — postExtractScript', () => {
       error: new Error('fail'),
     });
     const spy = jest.spyOn(console, 'log').mockImplementation(() => {});
-    await expect(runExtract(configWithScript, [], '/cwd')).rejects.toThrow();
+    await expect(runExtract(configWithArrayCmd, [], '/cwd')).rejects.toThrow();
     spy.mockRestore();
     expect(spy).not.toHaveBeenCalledWith(expect.stringContaining('Extract complete'));
   });

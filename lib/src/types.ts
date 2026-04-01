@@ -167,10 +167,11 @@ export type FiledistConfig = {
   /** All extraction entries. */
   sets: FiledistExtractEntry[];
   /**
-   * Shell command run after successful extract (not during --dry-run).
-   * Executed in process.cwd(). Full argv appended as arguments.
+   * Post-extract command run after successful extract (not during --dry-run).
+   * The first item is the executable and the remaining items are its arguments.
+   * Full argv is appended automatically.
    */
-  postExtractScript?: string;
+  postExtractCmd?: string[];
 };
 
 /**

@@ -1,12 +1,12 @@
 /* eslint-disable no-console */
 import fs from 'node:fs';
 import path from 'node:path';
-import { execSync } from 'node:child_process';
 
 import { detect } from 'package-manager-detector/detect';
 import { resolveCommand } from 'package-manager-detector/commands';
 
 import { FiledistExtractEntry } from '../types';
+import { spawnWithLog } from '../utils';
 
 export type InitConfig = {
   /** File glob patterns to include in the package and use as selector for filesets. */
@@ -87,11 +87,7 @@ export async function actionInit(
   const packagesToAdd = ['filedist', ...externalPackages];
   const addResolved = resolveCommand(agent, 'add', packagesToAdd);
   if (addResolved) {
-    const cmd = `${addResolved.command} ${addResolved.args.join(' ')}`;
-    if (verbose) {
-      console.log(`Running: ${cmd}`);
-    }
-    execSync(cmd, { cwd: outputDir, stdio: 'pipe' });
+    spawnWithLog(addResolved.command, addResolved.args, outputDir, verbose, true);
   }
 
   if (verbose) {
